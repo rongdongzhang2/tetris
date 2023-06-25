@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
+	"math/rand"
 	"net/http"
 	"strings"
 	"tetris/middlewares"
@@ -72,14 +73,81 @@ func main() {
 
 		// 创建房间
 		api.POST("/create_room", createRoom)
-		// 加入房间
+		// 加入房间 todo 这里可以给房间主人推送有人加入房间的消息
 		api.POST("/join_room", joinRoom)
+		// 开始游戏
+		api.POST("/start_game", startGame)
 
 	}
 	// ws连接
 	r.GET("/ws", ws)
 
 	r.Run() // listen and serve on 0.0.0.0:8080
+}
+
+// 开始游戏
+func startGame(c *gin.Context) {
+	// 获取房间号
+	roomId := c.PostForm("room_id")
+	if roomId == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  "开始游戏失败，请输入房间id",
+		})
+		return
+	}
+
+	// 创建一批随机数 100个
+	randArr := generateRandom()
+
+	// 将数组的int转换string
+	var strArr []string
+	for _, v := range randArr {
+		strArr = append(strArr, fmt.Sprintf("%d", v))
+	}
+
+	// 将随机数存入redis
+	err := rdb.HSet(ctx, "tetris_room_randArr", roomId, strings.Join(strArr, ",")).Err()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  err.Error(),
+		})
+		return
+	}
+
+	// 获取房间内的所有用户，并且推送游戏开始指令
+	result, err := rdb.HGet(ctx, "tetris_room", roomId).Result()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  err.Error(),
+		})
+		return
+	}
+
+	// 解析result为数组
+	arr := strings.Split(result, ",")
+	for _, v := range arr {
+		// 获取连接
+		conn := wsconnect[v]
+		if conn == nil {
+			continue
+		}
+		// 推送游戏开始指令
+		conn.WriteMessage(websocket.TextMessage, []byte("start"))
+	}
+}
+
+// 创建一批随机数
+func generateRandom() []int {
+	var arr []int
+	for i := 0; i < 100; i++ {
+		// 创建一个随机数 1-20
+		randNum := rand.Intn(20) + 1
+		arr = append(arr, randNum)
+	}
+	return arr
 }
 
 // 加入房间
