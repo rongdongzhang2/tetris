@@ -1,0 +1,849 @@
+<HTML>
+<HEAD>
+    <title>Tetris</title>
+    <script>window.resizeTo(410, 450)</script>
+    <style>
+        .MB {
+            BACKGROUND-COLOR: firebrick;
+            CURSOR: default;
+            HEIGHT: 22px;
+            WIDTH: 22px
+        }
+
+        .SB {
+            BACKGROUND-COLOR: slategray;
+            CURSOR: default;
+            HEIGHT: 22px;
+            WIDTH: 22px
+        }
+
+        .BK {
+            BACKGROUND-COLOR: white;
+            CURSOR: default;
+            HEIGHT: 22px;
+            WIDTH: 22px
+        }
+
+        .GT {
+            BORDER-BOTTOM: deepskyblue thin solid;
+            BORDER-LEFT: deepskyblue thin solid;
+            BORDER-RIGHT: deepskyblue thin solid;
+            BORDER-TOP: deepskyblue thin solid;
+            CURSOR: default
+        }
+    </style>
+    <script>
+
+        var BX = new Array(4);
+        var BY = new Array(4);
+        var PX = new Array(4);
+        var PY = new Array(4);
+        var mTimer
+        var firstView
+        var gameState = 0;
+
+        // 开始游戏
+        function beginGame() {
+            gameState = 0;
+            // 速度
+            speed = 1;
+            outTime = 1100 - speed * 100;
+            // 积分
+            score = 0;
+            if (gameState != 0) return;
+            firstView = true;
+            // 高度为16
+            for (j = 0; j < 16; j++)
+                // 宽度为10
+                for (i = 0; i < 10; i++)
+                    setClass(i, j, "BK");
+            randBar();
+            gameState = 1;
+            Play.disabled = true;
+            window.clearInterval(mTimer);
+            mTimer = window.setInterval("moveBar()", outTime);
+        }
+
+        // 控制键
+        function keyControl() {
+            if (gameState != 1) return;
+            switch (event.keyCode) {
+                case 37: {    //left
+                    // 如果到了最左边
+                    for (i = 0; i < 4; i++) if (BX[i] == 0) return;
+                    // 如果左边有方块
+                    for (i = 0; i < 4; i++) if (getClass(BX[i] - 1, BY[i]) == "SB") return;
+                    // 左移一个位置
+                    for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "BK");
+                    for (i = 0; i < 4; i++) BX[i] = BX[i] - 1;
+                    for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "MB");
+                    break;
+                }
+                // 转换形状
+                case 38: {    //up
+                    var preMBarX = new Array(4);
+                    var preMBarY = new Array(4);
+                    var cx = Math.round((BX[0] + BX[1] + BX[2] + BX[3]) / 4);
+                    var cy = Math.round((BY[0] + BY[1] + BY[2] + BY[3]) / 4);
+                    for (i = 0; i < 4; i++) {
+                        /*
+                        这个地方有必要做一下笔记，下面给出的计算方法是最终优化过的答案，所以不容易看出来
+                        需要考虑的第一个问题是，将方块逆时针旋转90度之后，它的x y坐标分别是多少
+                        这是围着原点在旋转(cx,xy)
+                        我们试想在这个坐标系上面，有一个点，它的坐标是 2,3
+                        把它逆时针旋转90度 (旋转后的结果是 -3,2)
+                        也就是把整个坐标系逆时针旋转了90度
+                        那么，结论就是。
+                        正x 会变成 正y
+                        负x 会变成 负y
+                        正y 会变成 负x
+                        负y 会变成 正x
+                        -------
+                        x变y的时候，直接变
+                        y变x的时候，加个负
+                        也就是说
+                        新x = 旧负y
+                        新y = 旧x
+
+                        旋转问题我们解决了，再来解决x和y到底是多少的问题
+                        因为(cx,cy)是圆点，所以x和y的距离，分别就是当前方块的x和y到 cx cy的距离
+                        方块的x和y分别表示方式为BX[i] BY[i]   (i是第几个方块)
+                        所以
+                        x = -(cy-BY[i])
+                        y = (cx-BX[i])
+
+                        这好像就是答案了？并不是
+                        x和y只是以cx,cy为原点来算的。我们真正的坐标系的原点在左上角。所以，还要把cx cy的距离加回来
+                        x = cx - (cy-BY[i])
+                        y = cy + (cx-BX[i])
+                        再把这个试子简化一点
+                        x = cx-(cy-BY[i])
+                        y = cy+cx-BX[i]
+                        这样就完美了
+
+                        -----
+                        再来
+                        如果是顺时针啦？
+                        新x = 旧y
+                        新y = 旧负x
+                        x = cx + (cy-BY[i])
+                        y = cy - (cx-BX[i])
+
+                         */
+                        // 逆时针
+                        // preMBarX[i] = Math.round(cx-(cy-BY[i]));
+                        // preMBarY[i] = Math.round(cy+cx-BX[i]);
+
+                        // 顺时针
+                        // preMBarX[i] = Math.round(cx+(cy-BY[i]));
+                        // preMBarY[i] = Math.round(cy-(cx-BX[i]));
+
+
+                        // 原文的
+                        preMBarX[i] = Math.round(cx - cy + BY[i]);
+                        preMBarY[i] = Math.round(cx + cy - BX[i]);
+                        if (preMBarX[i] < 0 || preMBarX[i] > 9 || preMBarY[i] < 0 || preMBarY[i] > 15) return;
+                        if (getClass(preMBarX[i], preMBarY[i]) == "SB") return;
+                    }
+                    for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "BK");
+                    for (i = 0; i < 4; i++) {
+                        BX[i] = preMBarX[i];
+                        BY[i] = preMBarY[i];
+                    }
+                    for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "MB");
+                    break;
+                }
+                case 39: {    //right
+                    for (i = 0; i < 4; i++) if (BX[i] == 9) return;
+                    for (i = 0; i < 4; i++) if (getClass(BX[i] + 1, BY[i]) == "SB") return;
+                    for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "BK");
+                    for (i = 0; i < 4; i++) BX[i] = BX[i] + 1;
+                    for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "MB");
+                    break;
+                }
+                case 40: {    //down
+                    moveBar();
+                    break;
+                }
+            }
+        }
+
+        // 检测是否有组成一条线
+        // 在不能下降时，会调用这里
+        function delLine() {
+            // 把方块改成砖块颜色
+            for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "SB");
+
+            // 找是否组成一条线
+            for (j = 0; j < 16; j++) {
+                dLine = true;
+                for (i = 0; i < 10; i++) {
+                    if (getClass(i, j) != "SB") {
+                        dLine = false;
+                        break;
+                    }
+                }
+                // 组成一条线了
+                if (dLine) {
+                    // 积分 + 100
+                    score = score + 100;
+
+                    // 从找到这条线的地方，以上的方块，都要下层一个位置
+                    for (k = j; k > 0; k--)
+                        for (l = 0; l < 10; l++)
+                            setClass(l, k, getClass(l, k - 1));
+                    // 填充一行白色
+                    for (l = 0; l < 10; l++) setClass(l, 0, "BK");
+                }
+            }
+            // 新生成一个随机方块，并且放一个方块到开始区
+            randBar();
+            // 加积分和调速度
+            speed = Math.floor(score / 3000) + 1;
+            outTime = 1100 - speed * 100;
+            scoreBar.innerHTML = "Score : " + score;
+            speedBar.innerHTML = "Speed : " + speed;
+            window.clearInterval(mTimer);
+            mTimer = window.setInterval("moveBar()", outTime);
+        }
+
+        function getClass(x, y) {
+            return GameBar.children[y].children[x].className;
+        }
+
+        function setClass(x, y, cName) {
+            GameBar.children[y].children[x].className = cName;
+        }
+
+        //
+        function moveBar() {
+            // 如果游戏不是开始状态，直接结束
+            if (gameState != 1) return;
+
+            // 是否可以继续下降
+            dropLine = true;
+            // 如果已经到了最底下就不能再下降了
+            for (i = 0; i < 4; i++)
+                if (BY[i] == 15)
+                    dropLine = false;
+
+
+            if (dropLine)
+                // 如果下一个位置有方块的颜色了，也不能下降了
+                for (i = 0; i < 4; i++)
+                    if (getClass(BX[i], BY[i] + 1) == "SB")
+                        dropLine = false;
+
+            // 如果不能下降了
+            if (!dropLine) {
+                // 停止计时器
+                window.clearInterval(mTimer);
+
+                delLine();
+                return;
+            }
+            // 下降一个位置 MB是红色，在下降的时候，还是红色的
+            for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "BK");
+            for (i = 0; i < 4; i++) BY[i] = BY[i] + 1;
+            for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "MB");
+        }
+
+        function pauseGame() {
+            if (gameState == 0) return;
+            if (event.srcElement.value == "Pause") {
+                gameState = 2;
+                event.srcElement.value = "Continue";
+                window.clearInterval(mTimer);
+            } else {
+                gameState = 1;
+                event.srcElement.value = "Pause";
+                mTimer = window.setInterval("moveBar()", outTime);
+            }
+        }
+
+        function fMnu() {
+            return false;
+        }
+
+        document.oncontextmenu = fMnu;
+
+        function preview() {
+            if (previewWnd.style.display != "none")
+                previewWnd.style.display = "none";
+            else
+                previewWnd.style.display = "block";
+        }
+
+        function replayGame() {
+            if (gameState != 1) return;
+            if (!confirm("Really want to re-start the game?")) return;
+            gameState = 0;
+            window.clearInterval(mTimer);
+            beginGame();
+        }
+
+        // 把准备区的方块放到游戏区来，然后在准备区生成一个方块
+        function randBar() {
+            // 随机数
+            randNum = Math.floor(Math.random() * 20) + 1;
+
+            // 如果不是第一次
+            if (!firstView)
+                // 把准备区的图形复制到游戏区来
+                // 因为后面准备区的图形就变了
+                for (i = 0; i < 4; i++) {
+                    BX[i] = PX[i];
+                    BY[i] = PY[i];
+                }
+
+            // 所有图形都是由四个点组成的，所以只需要标明四个点即可  0-3
+            // value 就是x y的位置
+            // 但是 为什么x要从4开始就不知道了，因为最后它减了3来显示位置
+            switch (randNum) {
+                case 1: {
+                    PX[0] = 4;
+                    PY[0] = 0;
+                    PX[1] = 4;
+                    PY[1] = 1;
+                    PX[2] = 5;
+                    PY[2] = 1;
+                    PX[3] = 6;
+                    PY[3] = 1;
+                    break;
+                }
+                case 2: {
+                    PX[0] = 4;
+                    PY[0] = 0;
+                    PX[1] = 5;
+                    PY[1] = 0;
+                    PX[2] = 4;
+                    PY[2] = 1;
+                    PX[3] = 4;
+                    PY[3] = 2;
+                    break;
+                }
+                case 3: {
+                    PX[0] = 4;
+                    PY[0] = 0;
+                    PX[1] = 5;
+                    PY[1] = 0;
+                    PX[2] = 6;
+                    PY[2] = 0;
+                    PX[3] = 6;
+                    PY[3] = 1;
+                    break;
+                }
+                case 4: {
+                    PX[0] = 5;
+                    PY[0] = 0;
+                    PX[1] = 5;
+                    PY[1] = 1;
+                    PX[2] = 5;
+                    PY[2] = 2;
+                    PX[3] = 4;
+                    PY[3] = 2;
+                    break;
+                }
+                case 5: {
+                    PX[0] = 6;
+                    PY[0] = 0;
+                    PX[1] = 6;
+                    PY[1] = 1;
+                    PX[2] = 4;
+                    PY[2] = 1;
+                    PX[3] = 5;
+                    PY[3] = 1;
+                    break;
+                }
+                case 6: {
+                    PX[0] = 4;
+                    PY[0] = 0;
+                    PX[1] = 4;
+                    PY[1] = 1;
+                    PX[2] = 4;
+                    PY[2] = 2;
+                    PX[3] = 5;
+                    PY[3] = 2;
+                    break;
+                }
+                case 7: {
+                    PX[0] = 4;
+                    PY[0] = 0;
+                    PX[1] = 4;
+                    PY[1] = 1;
+                    PX[2] = 5;
+                    PY[2] = 0;
+                    PX[3] = 6;
+                    PY[3] = 0;
+                    break;
+                }
+                case 8: {
+                    PX[0] = 4;
+                    PY[0] = 0;
+                    PX[1] = 5;
+                    PY[1] = 0;
+                    PX[2] = 5;
+                    PY[2] = 1;
+                    PX[3] = 5;
+                    PY[3] = 2;
+                    break;
+                }
+                case 9: {
+                    PX[0] = 4;
+                    PY[0] = 0;
+                    PX[1] = 5;
+                    PY[1] = 0;
+                    PX[2] = 5;
+                    PY[2] = 1;
+                    PX[3] = 6;
+                    PY[3] = 1;
+                    break;
+                }
+                case 10: {
+                    PX[0] = 5;
+                    PY[0] = 0;
+                    PX[1] = 5;
+                    PY[1] = 1;
+                    PX[2] = 4;
+                    PY[2] = 1;
+                    PX[3] = 4;
+                    PY[3] = 2;
+                    break;
+                }
+                case 11: {
+                    PX[0] = 4;
+                    PY[0] = 1;
+                    PX[1] = 5;
+                    PY[1] = 1;
+                    PX[2] = 5;
+                    PY[2] = 0;
+                    PX[3] = 6;
+                    PY[3] = 0;
+                    break;
+                }
+                case 12: {
+                    PX[0] = 4;
+                    PY[0] = 0;
+                    PX[1] = 4;
+                    PY[1] = 1;
+                    PX[2] = 5;
+                    PY[2] = 1;
+                    PX[3] = 5;
+                    PY[3] = 2;
+                    break;
+                }
+                case 13: {
+                    PX[0] = 4;
+                    PY[0] = 0;
+                    PX[1] = 5;
+                    PY[1] = 0;
+                    PX[2] = 6;
+                    PY[2] = 0;
+                    PX[3] = 5;
+                    PY[3] = 1;
+                    break;
+                }
+                case 14: {
+                    PX[0] = 4;
+                    PY[0] = 0;
+                    PX[1] = 4;
+                    PY[1] = 1;
+                    PX[2] = 4;
+                    PY[2] = 2;
+                    PX[3] = 5;
+                    PY[3] = 1;
+                    break;
+                }
+                case 15: {
+                    PX[0] = 5;
+                    PY[0] = 0;
+                    PX[1] = 5;
+                    PY[1] = 1;
+                    PX[2] = 4;
+                    PY[2] = 1;
+                    PX[3] = 6;
+                    PY[3] = 1;
+                    break;
+                }
+                case 16: {
+                    PX[0] = 5;
+                    PY[0] = 0;
+                    PX[1] = 5;
+                    PY[1] = 1;
+                    PX[2] = 5;
+                    PY[2] = 2;
+                    PX[3] = 4;
+                    PY[3] = 1;
+                    break;
+                }
+                case 17: {
+                    PX[0] = 4;
+                    PY[0] = 0;
+                    PX[1] = 5;
+                    PY[1] = 0;
+                    PX[2] = 4;
+                    PY[2] = 1;
+                    PX[3] = 5;
+                    PY[3] = 1;
+                    break;
+                }
+                case 18: {
+                    PX[0] = 4;
+                    PY[0] = 0;
+                    PX[1] = 5;
+                    PY[1] = 0;
+                    PX[2] = 4;
+                    PY[2] = 1;
+                    PX[3] = 5;
+                    PY[3] = 1;
+                    break;
+                }
+                case 19: {
+                    PX[0] = 3;
+                    PY[0] = 0;
+                    PX[1] = 4;
+                    PY[1] = 0;
+                    PX[2] = 5;
+                    PY[2] = 0;
+                    PX[3] = 6;
+                    PY[3] = 0;
+                    break;
+                }
+                case 20: {
+                    PX[0] = 5;
+                    PY[0] = 0;
+                    PX[1] = 5;
+                    PY[1] = 1;
+                    PX[2] = 5;
+                    PY[2] = 2;
+                    PX[3] = 5;
+                    PY[3] = 3;
+                    break;
+                }
+            }
+            if (firstView) {
+                firstView = false;
+                randBar();
+                return;
+            }
+            // 预览区空白
+            for (i = 0; i < 4; i++) {
+                for (j = 0; j < 4; j++) {
+                    previewBar.children[j].children[i].className = "BK";
+                }
+            }
+
+            // 这里的x为什么要减3，不知道，但是上面的设置是+3的基础之上的
+            // 这里为什么要+3的基础，是因为游戏区的宽度是10，然而方块占用的宽度是4  所以 3+4+3=10 所以+3 方块开始的时候，就刚好在中间位置
+            for (i = 0; i < 4; i++)
+                previewBar.children[PY[i]].children[PX[i] - 3].className = "MB";
+
+            // 方块开始出来的区域，如果不是白色的话，说明已经被其他方块占用了，则游戏结束
+            for (i = 0; i < 4; i++) {
+                if (getClass(BX[i], BY[i]) != "BK") {
+                    alert("Game Over!");
+                    window.clearInterval(mTimer);
+                    Play.disabled = false;
+                    gameState = 0;
+                    return;
+                }
+            }
+            // 设置方块的颜色
+            for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "MB");
+        }
+    </script>
+</HEAD>
+
+<BODY bgcolor="#EAF0F8" onkeydown="return keyControl();" topmargin="10" leftmargin="10" rightmargin="10"
+      bottommargin="0" scroll=no>
+<table border="0" width="100%" cellspacing="0" cellpadding="0" height="100%">
+    <tr>
+        <td width="100%" height="100%" align="center">
+            <table cellspacing=2 cellpadding=0 class=gt border=0 bordercolor="#EAF0F8" bgcolor="#EAF0F8">
+                <tr>
+                    <td valign="top">
+                        <table cellspacing=0 cellpadding=0 class=gt border=1 bordercolor="#EAF0F8" style="">
+                            <Tbody id=GameBar>
+                            <tr>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK>
+                                </td>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK>
+                                </td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK>
+                                </td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK>
+                                </td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK>
+                                </td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK>
+                                </td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </td>
+                    <td valign="top" align="center" style="padding: 10 10 0 10" bgcolor="#466285">
+                        <table cellspacing=0 cellpadding=0 border=0>
+                            <tr>
+                                <td><font size=5 color=red face=consolas>Tetris</font></td>
+                            </tr>
+                        </table>
+                        <table id="previewWnd" cellspacing=0 cellpadding=0 class=gt border=1 bordercolor="#EAF0F8"
+                               bgcolor="#EAF0F8" style="margin-top:15">
+                            <Tbody id="previewBar">
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            </tbody>
+                        </table>
+                        <table cellspacing=3 cellpadding=0 border=0 style="margin-top:15">
+                            <tr>
+                                <td><input type=button id="Play" style="font-family:Tahoma; font-size:9pt; width:100px"
+                                           value="Play" onclick="return beginGame();"></td>
+                            </tr>
+                            <tr>
+                                <td><input type=button id="Pause" style="font-family:Tahoma; font-size:9pt; width:100px"
+                                           value="Pause" onclick="return pauseGame();"></td>
+                            </tr>
+                            <tr>
+                                <td><input type=button id="Preview"
+                                           style="font-family:Tahoma; font-size:9pt; width:100px" value="Preview"
+                                           onclick="preview();"></td>
+                            </tr>
+                            <tr>
+                                <td><input type=button id="Replay"
+                                           style="font-family:Tahoma; font-size:9pt; width:100px" value="Replay"
+                                           onclick="replayGame();"></td>
+                            </tr>
+                        </table>
+                        <table cellspacing=3 cellpadding=0 border=0
+                               style="font-family:Tahoma; font-size:9pt; font-weight: bold; margin-top:10">
+                            <tr>
+                                <td id=scoreBar style="color:#FFFFFF">Score : 0</td>
+                            </tr>
+                            <tr>
+                                <td id=speedBar style="color:#FFFFFF">Speed : 1</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+</BODY>
+</HTML>
+<script>
+    function unSel() {
+        document.execCommand("Unselect");
+        window.setTimeout("unSel()", 100);
+    }
+
+    unSel();
+
+
+</script>
