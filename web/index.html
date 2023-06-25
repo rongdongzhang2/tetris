@@ -131,8 +131,8 @@
 
                          */
                         // 逆时针
-                        // preMBarX[i] = Math.round(cx-(cy-BY[i]));
-                        // preMBarY[i] = Math.round(cy+cx-BX[i]);
+                        preMBarX[i] = Math.round(cx - (cy - BY[i]));
+                        preMBarY[i] = Math.round(cy + cx - BX[i]);
 
                         // 顺时针
                         // preMBarX[i] = Math.round(cx+(cy-BY[i]));
@@ -140,8 +140,8 @@
 
 
                         // 原文的
-                        preMBarX[i] = Math.round(cx - cy + BY[i]);
-                        preMBarY[i] = Math.round(cx + cy - BX[i]);
+                        // preMBarX[i] = Math.round(cx - cy + BY[i]);
+                        // preMBarY[i] = Math.round(cx + cy - BX[i]);
                         if (preMBarX[i] < 0 || preMBarX[i] > 9 || preMBarY[i] < 0 || preMBarY[i] > 15) return;
                         if (getClass(preMBarX[i], preMBarY[i]) == "SB") return;
                     }
@@ -819,6 +819,11 @@
                                            style="font-family:Tahoma; font-size:9pt; width:100px" value="Replay"
                                            onclick="replayGame();"></td>
                             </tr>
+                            <tr>
+                                <td><input type=button id="CreateRoom"
+                                           style="font-family:Tahoma; font-size:9pt; width:100px" value="CreateRoom"
+                                           onclick="CreateRoom();"></td>
+                            </tr>
                         </table>
                         <table cellspacing=3 cellpadding=0 border=0
                                style="font-family:Tahoma; font-size:9pt; font-weight: bold; margin-top:10">
@@ -838,6 +843,11 @@
 </BODY>
 </HTML>
 <script>
+    // 用于保存用户的token
+    var token, ROOM_ID;
+
+
+
     function unSel() {
         document.execCommand("Unselect");
         window.setTimeout("unSel()", 100);
@@ -845,5 +855,142 @@
 
     unSel();
 
+
+    // 登录
+    function login() {
+        // 后端服务会生成一个uuid作为前端的标识，并且会写入到cookie中
+        // 请求其他接口时，应该携带这个uuid
+        const url = 'http://127.0.0.1:8080/api/login';
+        const data = {};
+
+        fetch(url, {
+            method: 'POST',
+            headers: {},
+            body: JSON.stringify(data)
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.code != 1) {
+                    alert("登录失败")
+                }
+                // 保存token
+                token = data.data.token;
+
+
+                console.log('Response:', data);
+                conn_ws();
+                join_room();
+
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+
+
+    }
+
+    // 进入就先直接登录
+    login();
+
+    // 创建房间
+    function CreateRoom() {
+        const url = 'http://127.0.0.1:8080/api/create_room';
+        const data = {
+            token: token
+        };
+
+        fetch(url, {
+            method: 'POST',
+            headers: {},
+            body: JSON.stringify(data)
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.code != 0) {
+                    alert("创建成功");
+                    ROOM_ID = data.data.room_id;
+                }
+                console.log('Response:', data);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+    }
+
+
+    // 加入房间
+    function join_room() {
+        // 获取Query中的room_id
+        var queryString = window.location.search;
+        var params = new URLSearchParams(queryString);
+
+        room_id = params.get('room_id');
+        if (room_id == null) {
+            // 没有邀请
+            return;
+        }
+
+        console.log(token)
+        const url = 'http://127.0.0.1:8080/api/join_room';
+        const data = {
+            token: token,
+            room_id: room_id,
+        };
+
+        var formData = new FormData();
+        formData.append("token", token);
+        formData.append("room_id", room_id);
+
+        fetch(url, {
+            method: 'POST',
+            body: formData
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.code != 0) {
+                    alert("成功加入房间");
+                    ROOM_ID = room_id
+                }
+                console.log('Response:', data);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+
+
+    }
+
+    // 连接ws
+    function conn_ws() {
+        var address = "ws://127.0.0.1:8080/ws?token=" + token;
+        var socket = new WebSocket(address);
+
+        // 连接建立时的回调函数
+        socket.onopen = function (event) {
+            console.log("WebSocket连接已建立");
+        };
+
+        // 接收到消息时的回调函数
+        socket.onmessage = function (event) {
+            var message = event.data;
+            console.log("接收到消息：" + message);
+        };
+
+        // 连接关闭时的回调函数
+        socket.onclose = function (event) {
+            console.log("WebSocket连接已关闭");
+        };
+
+        // 发送消息
+        function sendMessage(message) {
+            socket.send(message);
+        }
+
+        // 关闭连接
+        function closeConnection() {
+            socket.close();
+        }
+
+    }
 
 </script>
