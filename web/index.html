@@ -61,9 +61,51 @@
                     // 暂停游戏
                     pauseGame2();
                 }
-
-                console.log("剩余时间:" + GAME_TIMEOUT);
+                // console.log("剩余时间:" + GAME_TIMEOUT);
             }, 1000);
+        }
+
+        // 将自己的游戏界面同步到服务器
+        function syncGame() {
+            // 获取游戏的棋盘数据
+            var board = getBoard();
+
+            var data = {
+                "board": board,
+                "room_id": ROOM_ID,
+                "token": token,
+                // 应该也同步游戏状态的
+            }
+
+            const url = getDomain() + '/api/sync_game';
+
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(data)
+            })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Response:', data);
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                });
+
+        }
+
+        // 获取整个棋盘的数据
+        function getBoard() {
+            var board = new Array(16);
+            for (j = 0; j < 16; j++) {
+                board[j] = new Array(10);
+                for (i = 0; i < 10; i++) {
+                    board[j][i] = getClass(i, j);
+                }
+            }
+            return board;
         }
 
         // 开始游戏
@@ -241,11 +283,16 @@
             GameBar.children[y].children[x].className = cName;
         }
 
+        function setClass2(x, y, cName) {
+            GameBar2.children[y].children[x].className = cName;
+        }
+
         //
         function moveBar() {
             // 如果游戏不是开始状态，直接结束
             if (gameState != 1) return;
 
+            syncGame();
             // 是否可以继续下降
             dropLine = true;
             // 如果已经到了最底下就不能再下降了
@@ -598,6 +645,215 @@
 <table border="0" width="100%" cellspacing="0" cellpadding="0" height="100%">
     <tr>
         <td width="100%" height="100%" align="center">
+            <table cellspacing=2 cellpadding=0 class=gt border=0 bordercolor="#EAF0F8" bgcolor="#EAF0F8"
+                   style="float: left">
+                <tr>
+                    <td valign="top">
+                        <table cellspacing=0 cellpadding=0 class=gt border=1 bordercolor="#EAF0F8" style="">
+                            <Tbody id=GameBar2>
+                            <tr>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK>
+                                </td>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK></td>
+                                <td nowrap class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK>
+                                </td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK>
+                                </td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK>
+                                </td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK>
+                                </td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK>
+                                </td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            <tr>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                                <td class=BK></td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </td>
+                </tr>
+            </table>
             <table cellspacing=2 cellpadding=0 class=gt border=0 bordercolor="#EAF0F8" bgcolor="#EAF0F8">
                 <tr>
                     <td valign="top">
@@ -1071,8 +1327,8 @@
             var message = event.data;
             // 将Message解析为json
             var json = JSON.parse(message);
-            console.log("接收到消息：" + message);
-            console.log(json);
+            // console.log("接收到消息：" + message);
+            // console.log(json);
             if (json.command == 'start_game') {
                 // 开始游戏
                 randBarArr = json.data.randArr;
@@ -1087,7 +1343,20 @@
                 alert(json.data.token + "加入房间")
             }
 
+            if (json.command == 'sync_game') {
+                // 游戏同步
+                board = json.data.board;
+                console.log(board)
 
+                // 循环board
+                for (var i = 0; i < board.length; i++) {
+                    var bar = board[i];
+                    // 循环bar
+                    for (var j = 0; j < bar.length; j++) {
+                        setClass2(j, i, bar[j])
+                    }
+                }
+            }
         };
 
         // 连接关闭时的回调函数
@@ -1109,7 +1378,7 @@
 
     // 获取domain
     function getDomain() {
-        return "//"+ document.domain;
+        return "//" + document.domain;
     }
 
 </script>

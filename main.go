@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"tetris/middlewares"
+	"tetris/util"
 )
 
 // 保存全局的Redis
@@ -68,13 +69,11 @@ func main() {
 
 	api := r.Group("/api")
 	{
-		//
-		api.GET("/ping", ping)
-		// 同步棋盘数据
-		api.GET("/sync", sync)
-
 		// 用户注册
 		api.POST("/login", login)
+
+		// 同步棋盘数据
+		api.POST("/sync_game", syncGame)
 
 		// 创建房间
 		api.POST("/create_room", createRoom)
@@ -272,7 +271,6 @@ func joinRoom(c *gin.Context) {
 	// 获取房间id
 	roomId := c.PostForm("room_id")
 
-	fmt.Println(roomId)
 	if roomId == "" {
 		c.JSON(http.StatusOK, gin.H{
 			"code": 0,
@@ -293,25 +291,11 @@ func joinRoom(c *gin.Context) {
 	// 解析result为数组
 	arr := strings.Split(result, ",")
 	arr = append(arr, token)
-
-	// 对arr进行去重
-	// 创建一个map用于存储切片中的元素，初始为空结构体
-	seen := make(map[string]struct{})
-
-	// 创建一个新的切片用于存储去重后的元素
-	var uniqueSlice []string
-
-	// 遍历原始切片
-	for _, element := range arr {
-		// 如果元素不在map中，则表示未重复，将其添加到去重切片和map中
-		if _, ok := seen[element]; !ok {
-			seen[element] = struct{}{}
-			uniqueSlice = append(uniqueSlice, element)
-		}
-	}
+	// 去重
+	arr = util.RemoveDuplicates(arr)
 
 	// 拼接result和token
-	value := strings.Join(uniqueSlice, ",")
+	value := strings.Join(arr, ",")
 
 	err = rdb.HSet(ctx, "tetris_room", roomId, value).Err()
 	if err != nil {
@@ -322,32 +306,26 @@ func joinRoom(c *gin.Context) {
 		return
 	}
 
-	// 给房间内的其他用户发送消息，已加入房间
-	// 获取房间内的所有用户
-	result, err = rdb.HGet(ctx, "tetris_room", roomId).Result()
-	if err == nil {
+	// 循环uniqueSlice
+	for _, v := range arr {
 		message, _ := json.Marshal(JSON{
 			"command": "join_room",
 			"data": JSON{
 				"token": token,
 			},
 		})
-
-		arr := strings.Split(result, ",")
-		for _, v := range arr {
-			// 跳过当前用户
-			if v == token {
-				continue
-			}
-			// 获取连接
-			conn := wsconnect[v]
-			if conn == nil {
-				continue
-			}
-
-			// 发送消息
-			conn.WriteMessage(websocket.TextMessage, message)
+		if v == token {
+			continue
 		}
+
+		// 获取连接
+		conn := wsconnect[v]
+		if conn == nil {
+			continue
+		}
+
+		// 发送消息
+		conn.WriteMessage(websocket.TextMessage, message)
 	}
 
 	c.JSON(200, gin.H{
@@ -402,11 +380,12 @@ func getToken(c *gin.Context) (token string, err error) {
 	if token != "" {
 		return token, nil
 	}
-	var tokenJson jsonToken
+	var tokenJson map[string]interface{}
 
-	c.BindJSON(&tokenJson)
-	if tokenJson.token != "" {
-		token = tokenJson.token
+	c.ShouldBindJSON(&tokenJson)
+	if val, ok := tokenJson["token"]; ok && val != "" {
+		token = tokenJson["token"].(string)
+		return token, nil
 	}
 
 	return "", errors.New("用户没有token，没有登录")
@@ -432,30 +411,73 @@ func login(c *gin.Context) {
 
 }
 
-func ping(c *gin.Context) {
-	// 如果存在，则发送消息到1234通道
-	ws, ok := wsconnect["1234"]
-	if ok {
-		message := []byte("Hello")
-		ws.WriteMessage(1, message)
+func syncGame(c *gin.Context) {
+	// 获取post的json数据
+	var requestBody map[string]interface{}
+	if err := c.ShouldBindJSON(&requestBody); err != nil {
+		fmt.Println(err)
+		c.JSON(400, gin.H{"error": "Invalid JSON payload"})
+		return
+	}
+
+	// 获取房间号
+	roomId := requestBody["room_id"].(string)
+
+	// 获取游戏棋盘数据
+	gameData := requestBody["board"]
+
+	// 获取用户的token
+	token, err := getToken(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  err.Error(),
+		})
+		return
+	}
+
+	// 将棋盘数据发送给房间内的其他用户
+	// 获取房间内的所有用户
+	result, err := rdb.HGet(ctx, "tetris_room", roomId).Result()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  err.Error(),
+		})
+		return
+	}
+
+	message, _ := json.Marshal(JSON{
+		"command": "sync_game",
+		"data": JSON{
+			"board": gameData,
+		},
+	})
+
+	arr := strings.Split(result, ",")
+
+	for _, v := range arr {
+		// 跳过当前用户
+		if v == token {
+			continue
+		}
+		// 获取连接
+		conn := wsconnect[v]
+		if conn == nil {
+			continue
+		}
+
+		// 发送消息
+		err = conn.WriteMessage(websocket.TextMessage, message)
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 
 	c.JSON(200, gin.H{
-		"message": "pong",
+		"code": 1,
+		"data": "OK",
 	})
-}
-
-func sync(c *gin.Context) {
-	// 获取房间id
-	roomId := c.PostForm("room_id")
-	if roomId == "" {
-		c.JSON(200, gin.H{
-			"code": 0,
-			"msg":  "请输入房间id",
-		})
-	}
-
-	// 通过roomId找到对手的token
 
 }
 
