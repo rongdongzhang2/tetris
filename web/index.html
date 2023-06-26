@@ -42,8 +42,34 @@
         var firstView
         var gameState = 0;
 
+        var randBarArr;
+        var randBarIndex = 0;
+        // 游戏有效时间
+        var GAME_TIMEOUT;
+
+        // 计时器
+        function startTimer() {
+            var sTimer = window.setInterval(function () {
+                // 游戏时间用秒计时
+                GAME_TIMEOUT--;
+
+                // 游戏结束
+                if (GAME_TIMEOUT == 0) {
+                    console.log("游戏结束")
+                    alert("游戏结束");
+                    window.clearInterval(sTimer);
+                    // 暂停游戏
+                    pauseGame2();
+                }
+
+                console.log("剩余时间:" + GAME_TIMEOUT);
+            }, 1000);
+        }
+
         // 开始游戏
         function beginGame() {
+            startTimer();
+            console.log("开始游戏");
             gameState = 0;
             // 速度
             speed = 1;
@@ -261,6 +287,12 @@
             }
         }
 
+        function pauseGame2() {
+            if (gameState == 0) return;
+            gameState = 2;
+            window.clearInterval(mTimer);
+        }
+
         function fMnu() {
             return false;
         }
@@ -285,7 +317,14 @@
         // 把准备区的方块放到游戏区来，然后在准备区生成一个方块
         function randBar() {
             // 随机数
-            randNum = Math.floor(Math.random() * 20) + 1;
+            // randNum = Math.floor(Math.random() * 20) + 1;
+            randNum = randBarArr[randBarIndex];
+            randBarIndex++;
+
+            // 如果准备见底，就需要获取新的数据
+            if (randBarArr.length - randBarIndex < 20) {
+                get_game_data();
+            }
 
             // 如果不是第一次
             if (!firstView)
@@ -824,6 +863,11 @@
                                            style="font-family:Tahoma; font-size:9pt; width:100px" value="CreateRoom"
                                            onclick="CreateRoom();"></td>
                             </tr>
+                            <tr>
+                                <td><input type=button id="start_game"
+                                           style="font-family:Tahoma; font-size:9pt; width:100px" value="start_game"
+                                           onclick="start_game();"></td>
+                            </tr>
                         </table>
                         <table cellspacing=3 cellpadding=0 border=0
                                style="font-family:Tahoma; font-size:9pt; font-weight: bold; margin-top:10">
@@ -845,7 +889,6 @@
 <script>
     // 用于保存用户的token
     var token, ROOM_ID;
-
 
 
     function unSel() {
@@ -960,6 +1003,65 @@
 
     }
 
+    // 开始游戏
+    function start_game() {
+        console.log(token)
+        const url = 'http://127.0.0.1:8080/api/start_game';
+
+        if(ROOM_ID == null){
+            alert("请先创建房间或者加入房间");
+            return;
+        }
+
+        var formData = new FormData();
+        formData.append("room_id", ROOM_ID);
+
+        fetch(url, {
+            method: 'POST',
+            body: formData
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.code != 0) {
+                    alert("开始游戏");
+                }
+                console.log('Response:', data);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+
+
+    }
+
+    // 获取游戏棋盘数据
+    function get_game_data() {
+        const url = 'http://127.0.0.1:8080/api/get_game_board';
+
+        var formData = new FormData();
+        formData.append("room_id", ROOM_ID);
+        formData.append("index", randBarIndex);
+
+        fetch(url, {
+            method: 'POST',
+            body: formData
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.code != 0) {
+                    console.log(data.data.randArr)
+                    randBarArr = data.data.randArr;
+                }
+                console.log('Response:', data);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+
+
+    }
+
+
     // 连接ws
     function conn_ws() {
         var address = "ws://127.0.0.1:8080/ws?token=" + token;
@@ -973,7 +1075,26 @@
         // 接收到消息时的回调函数
         socket.onmessage = function (event) {
             var message = event.data;
+            // 将Message解析为json
+            var json = JSON.parse(message);
             console.log("接收到消息：" + message);
+            console.log(json);
+            if (json.command == 'start_game') {
+                // 开始游戏
+                randBarArr = json.data.randArr;
+                console.log(randBarArr)
+                randBarIndex = 0;
+                GAME_TIMEOUT = json.data.timeout;
+                beginGame();
+            }
+            if (json.command == 'join_room') {
+                // 加入房间
+                console.log(json.data.token + "加入房间")
+                alert(json.data.token + "加入房间")
+            }
+
+
+
         };
 
         // 连接关闭时的回调函数
