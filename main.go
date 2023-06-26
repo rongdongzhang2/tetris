@@ -89,7 +89,8 @@ func main() {
 	// ws连接
 	r.GET("/ws", ws)
 
-	r.Run() // listen and serve on 0.0.0.0:8080
+	// 监听80端口
+	r.Run("0.0.0.0:80")
 }
 
 // 获取游戏棋盘

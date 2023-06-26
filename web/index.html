@@ -903,7 +903,7 @@
     function login() {
         // 后端服务会生成一个uuid作为前端的标识，并且会写入到cookie中
         // 请求其他接口时，应该携带这个uuid
-        const url = 'http://127.0.0.1:8080/api/login';
+        const url = getDomain() + '/api/login';
         const data = {};
 
         fetch(url, {
@@ -937,7 +937,7 @@
 
     // 创建房间
     function CreateRoom() {
-        const url = 'http://127.0.0.1:8080/api/create_room';
+        const url = getDomain() + '/api/create_room';
         const data = {
             token: token
         };
@@ -974,11 +974,7 @@
         }
 
         console.log(token)
-        const url = 'http://127.0.0.1:8080/api/join_room';
-        const data = {
-            token: token,
-            room_id: room_id,
-        };
+        const url = getDomain() + '/api/join_room';
 
         var formData = new FormData();
         formData.append("token", token);
@@ -1006,9 +1002,9 @@
     // 开始游戏
     function start_game() {
         console.log(token)
-        const url = 'http://127.0.0.1:8080/api/start_game';
+        const url = getDomain() + '/api/start_game';
 
-        if(ROOM_ID == null){
+        if (ROOM_ID == null) {
             alert("请先创建房间或者加入房间");
             return;
         }
@@ -1036,7 +1032,7 @@
 
     // 获取游戏棋盘数据
     function get_game_data() {
-        const url = 'http://127.0.0.1:8080/api/get_game_board';
+        const url = getDomain() + '/api/get_game_board';
 
         var formData = new FormData();
         formData.append("room_id", ROOM_ID);
@@ -1057,14 +1053,12 @@
             .catch(error => {
                 console.error('Error:', error);
             });
-
-
     }
 
 
     // 连接ws
     function conn_ws() {
-        var address = "ws://127.0.0.1:8080/ws?token=" + token;
+        var address = "ws:" + getDomain() + "/ws?token=" + token;
         var socket = new WebSocket(address);
 
         // 连接建立时的回调函数
@@ -1094,7 +1088,6 @@
             }
 
 
-
         };
 
         // 连接关闭时的回调函数
@@ -1112,6 +1105,11 @@
             socket.close();
         }
 
+    }
+
+    // 获取domain
+    function getDomain() {
+        return "//"+ document.domain;
     }
 
 </script>
