@@ -9,12 +9,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
-	"math/rand"
 	"net/http"
 	"strconv"
-	"strings"
 	"tetris/middlewares"
-	"tetris/util"
+	"tetris/room"
 )
 
 // 保存全局的Redis
@@ -36,10 +34,6 @@ var upgrade = websocket.Upgrader{
 
 		return true
 	},
-}
-
-type jsonToken struct {
-	token string `json:"token"`
 }
 
 // 定义一个任何类型的键值对，方便转换为json
@@ -77,7 +71,7 @@ func main() {
 
 		// 创建房间
 		api.POST("/create_room", createRoom)
-		// 加入房间 todo 这里可以给房间主人推送有人加入房间的消息
+		// 加入房间
 		api.POST("/join_room", joinRoom)
 		// 开始游戏
 		api.POST("/start_game", startGame)
@@ -90,10 +84,11 @@ func main() {
 
 	// 监听80端口
 	r.Run("0.0.0.0:80")
+
+	go room.CheckRoomActive()
 }
 
 // 获取游戏棋盘
-// todo 因为这里可能存在并发获取问题，所需要加一个锁
 func getGameBoard(c *gin.Context) {
 	// 获取房间号和index
 	roomId := c.PostForm("room_id")
@@ -106,66 +101,19 @@ func getGameBoard(c *gin.Context) {
 		return
 	}
 
-	// 获取房间的随机数
-	val := rdb.HGet(ctx, "tetris_room_randArr", roomId).Val()
-	randArr := make([]int, 0)
-	if val == "" {
-		// 创建一批随机数 100个
-		randArr = generateRandom()
-
-		// 将数组的int转换string
-		var strArr []string
-		for _, v := range randArr {
-			strArr = append(strArr, fmt.Sprintf("%d", v))
-		}
-
-		// 将随机数存入redis
-		err := rdb.HSet(ctx, "tetris_room_randArr", roomId, strings.Join(strArr, ",")).Err()
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"code": 0,
-				"msg":  err.Error(),
-			})
-			return
-		}
-	} else {
-		randArri := strings.Split(val, ",")
-		for _, v := range randArri {
-			// 将v转换为int
-			num, _ := strconv.Atoi(v)
-			randArr = append(randArr, num)
-		}
-	}
-	// 数组长度
-	randLen := len(randArr)
-
-	// 查看当前已经进行到的索引位置
-	if randLen-index < 20 {
-		// 生成新的随机数
-		randArrNew := generateRandom()
-		// 合并数组
-		randArr = append(randArr, randArrNew...)
-		// 将数组的int转换string
-		var strArrNew []string
-		for _, v := range randArr {
-			strArrNew = append(strArrNew, fmt.Sprintf("%d", v))
-		}
-
-		// 保存到Redis
-		err := rdb.HSet(ctx, "tetris_room_randArr", roomId, strings.Join(strArrNew, ",")).Err()
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"code": 0,
-				"msg":  err.Error(),
-			})
-			return
-		}
+	RandArr, err := room.GetRandArr(roomId, index)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  err.Error(),
+		})
+		return
 	}
 
 	// 返回随机数组
 	c.JSON(http.StatusOK, gin.H{
 		"code": 1,
-		"data": JSON{"randArr": randArr},
+		"data": JSON{"randArr": RandArr},
 	})
 }
 
@@ -181,17 +129,7 @@ func startGame(c *gin.Context) {
 		return
 	}
 
-	// 创建一批随机数 100个
-	randArr := generateRandom()
-
-	// 将数组的int转换string
-	var strArr []string
-	for _, v := range randArr {
-		strArr = append(strArr, fmt.Sprintf("%d", v))
-	}
-
-	// 将随机数存入redis
-	err := rdb.HSet(ctx, "tetris_room_randArr", roomId, strings.Join(strArr, ",")).Err()
+	err := room.StartGame(roomId)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"code": 0,
@@ -200,42 +138,25 @@ func startGame(c *gin.Context) {
 		return
 	}
 
-	// 获取房间内的所有用户，并且推送游戏开始指令
-	result, err := rdb.HGet(ctx, "tetris_room", roomId).Result()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"code": 0,
-			"msg":  "1" + err.Error(),
-		})
-		return
-	}
+	Room, _ := room.GetRoom(roomId)
 
-	// 开始游戏的消息内容，包括随机数组和开始游戏的标识
 	jsonData := JSON{
 		"command": "start_game",
 		"data": JSON{
-			"randArr": randArr,
-			"timeout": 5 * 60, // 5分钟游戏时间
+			"randArr": Room.RandArr,
+			"timeout": Room.Timeout,
 		},
 	}
 
-	val, err := json.Marshal(jsonData)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"code": 0,
-			"msg":  err.Error(),
-		})
-		return
-	}
-	// 解析result为数组
-	arr := strings.Split(result, ",")
-	for _, v := range arr {
+	val, _ := json.Marshal(jsonData)
+
+	// 循环房间内的用户，发送开始游戏的消息
+	for _, v := range Room.UserList {
 		// 获取连接
 		conn := wsconnect[v]
 		if conn == nil {
 			continue
 		}
-
 		// 推送游戏开始指令
 		conn.WriteMessage(websocket.TextMessage, val)
 	}
@@ -246,19 +167,9 @@ func startGame(c *gin.Context) {
 	})
 }
 
-// 创建一批随机数
-func generateRandom() []int {
-	var arr []int
-	for i := 0; i < 100; i++ {
-		// 创建一个随机数 1-20
-		randNum := rand.Intn(20) + 1
-		arr = append(arr, randNum)
-	}
-	return arr
-}
-
 // 加入房间
 func joinRoom(c *gin.Context) {
+	// 加入房间应该判断游戏状态，如果正在游戏中，不可以加入房间
 	token, err := getToken(c)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -279,7 +190,8 @@ func joinRoom(c *gin.Context) {
 		return
 	}
 
-	result, err := rdb.HGet(ctx, "tetris_room", roomId).Result()
+	err = room.JoinRoom(roomId, token)
+
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"code": 0,
@@ -288,32 +200,19 @@ func joinRoom(c *gin.Context) {
 		return
 	}
 
-	// 解析result为数组
-	arr := strings.Split(result, ",")
-	arr = append(arr, token)
-	// 去重
-	arr = util.RemoveDuplicates(arr)
+	// 给房间内的其他用户发送提醒，有人加入
+	Room, _ := room.GetRoom(roomId)
 
-	// 拼接result和token
-	value := strings.Join(arr, ",")
+	// 发送的消息
+	message, _ := json.Marshal(JSON{
+		"command": "join_room",
+		"data": JSON{
+			"token": token,
+		},
+	})
 
-	err = rdb.HSet(ctx, "tetris_room", roomId, value).Err()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"code": 0,
-			"msg":  err.Error(),
-		})
-		return
-	}
-
-	// 循环uniqueSlice
-	for _, v := range arr {
-		message, _ := json.Marshal(JSON{
-			"command": "join_room",
-			"data": JSON{
-				"token": token,
-			},
-		})
+	// 循环room.UserList
+	for _, v := range Room.UserList {
 		if v == token {
 			continue
 		}
@@ -346,22 +245,27 @@ func createRoom(c *gin.Context) {
 		return
 	}
 
-	// 直接用token做房间号来创建
-	err = rdb.HSet(ctx, "tetris_room", token, token).Err()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"code": 0,
-			"msg":  err.Error(),
+	// 判断房间是否已经存在
+	isExist := room.IsRoomExist(token)
+	if isExist {
+		c.JSON(200, gin.H{
+			"code": 1,
+			"data": gin.H{"room_id": token},
+			"msg":  "success",
 		})
 		return
 	}
 
+	// 创建房间
+	roomId := room.CreateRoom(token, token)
+	// 把当前用户加入到房间中
+	_ = room.JoinRoom(roomId, token)
+
 	c.JSON(200, gin.H{
 		"code": 1,
-		"data": gin.H{"room_id": token},
+		"data": gin.H{"room_id": roomId},
 		"msg":  "success",
 	})
-
 }
 
 func getToken(c *gin.Context) (token string, err error) {
@@ -436,42 +340,28 @@ func syncGame(c *gin.Context) {
 		return
 	}
 
-	// 将棋盘数据发送给房间内的其他用户
-	// 获取房间内的所有用户
-	result, err := rdb.HGet(ctx, "tetris_room", roomId).Result()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"code": 0,
-			"msg":  err.Error(),
-		})
-		return
-	}
-
 	message, _ := json.Marshal(JSON{
 		"command": "sync_game",
 		"data": JSON{
 			"board": gameData,
+			"token": token,
 		},
 	})
 
-	arr := strings.Split(result, ",")
+	Room, _ := room.GetRoom(roomId)
 
-	for _, v := range arr {
-		// 跳过当前用户
+	// 循环room.UserList
+	for _, v := range Room.UserList {
 		if v == token {
 			continue
 		}
-		// 获取连接
 		conn := wsconnect[v]
 		if conn == nil {
 			continue
 		}
 
 		// 发送消息
-		err = conn.WriteMessage(websocket.TextMessage, message)
-		if err != nil {
-			fmt.Println(err)
-		}
+		conn.WriteMessage(websocket.TextMessage, message)
 	}
 
 	c.JSON(200, gin.H{
