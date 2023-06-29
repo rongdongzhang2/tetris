@@ -1,26 +1,18 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/redis/go-redis/v9"
 	"net/http"
 	"strconv"
 	"tetris/middlewares"
 	"tetris/room"
+	"tetris/user"
 )
-
-// 保存全局的Redis
-var rdb *redis.Client
-var ctx = context.Background()
-
-// 创建一个map，保存websocket的连接
-var wsconnect = make(map[string]*websocket.Conn)
 
 var upgrade = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -30,7 +22,9 @@ var upgrade = websocket.Upgrader{
 			return false
 		}
 
-		// TODO 判断是否存在该token
+		if !user.IsUserExist(token) {
+			return false
+		}
 
 		return true
 	},
@@ -39,22 +33,7 @@ var upgrade = websocket.Upgrader{
 // 定义一个任何类型的键值对，方便转换为json
 type JSON map[string]any
 
-func connectRedis() {
-	rdb = redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "", // 没有密码，默认值
-		DB:       0,  // 默认DB 0
-	})
-	// 判断是否连接成功
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		fmt.Println("Redis 连接失败，不能启动")
-		panic(err)
-	}
-}
-
 func main() {
-	// 连接Redis
-	connectRedis()
 	r := gin.Default()
 
 	r.Use(middlewares.Cors())
@@ -65,16 +44,14 @@ func main() {
 	{
 		// 用户注册
 		api.POST("/login", login)
-
-		// 同步棋盘数据
-		api.POST("/sync_game", syncGame)
-
 		// 创建房间
 		api.POST("/create_room", createRoom)
 		// 加入房间
 		api.POST("/join_room", joinRoom)
 		// 开始游戏
 		api.POST("/start_game", startGame)
+		// 同步棋盘数据
+		api.POST("/sync_game", syncGame)
 		// 获取游戏棋盘数据
 		api.POST("/get_game_board", getGameBoard)
 
@@ -101,7 +78,17 @@ func getGameBoard(c *gin.Context) {
 		return
 	}
 
-	RandArr, err := room.GetRandArr(roomId, index)
+	Room, err := room.GetRoom(roomId)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  err.Error(),
+		})
+		return
+	}
+
+	// 获取游戏棋盘
+	RandArr, err := Room.GetRandArr(index)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"code": 0,
@@ -129,7 +116,7 @@ func startGame(c *gin.Context) {
 		return
 	}
 
-	err := room.StartGame(roomId)
+	Room, err := room.GetRoom(roomId)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"code": 0,
@@ -138,7 +125,13 @@ func startGame(c *gin.Context) {
 		return
 	}
 
-	Room, _ := room.GetRoom(roomId)
+	if err = Room.StartGame(); err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  err.Error(),
+		})
+		return
+	}
 
 	jsonData := JSON{
 		"command": "start_game",
@@ -149,17 +142,7 @@ func startGame(c *gin.Context) {
 	}
 
 	val, _ := json.Marshal(jsonData)
-
-	// 循环房间内的用户，发送开始游戏的消息
-	for _, v := range Room.UserList {
-		// 获取连接
-		conn := wsconnect[v]
-		if conn == nil {
-			continue
-		}
-		// 推送游戏开始指令
-		conn.WriteMessage(websocket.TextMessage, val)
-	}
+	Room.SendMessage(val, nil)
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
@@ -170,12 +153,8 @@ func startGame(c *gin.Context) {
 // 加入房间
 func joinRoom(c *gin.Context) {
 	// 加入房间应该判断游戏状态，如果正在游戏中，不可以加入房间
-	token, err := getToken(c)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"code": 0,
-			"msg":  err.Error(),
-		})
+	User := getUser(c)
+	if User == nil {
 		return
 	}
 
@@ -190,7 +169,7 @@ func joinRoom(c *gin.Context) {
 		return
 	}
 
-	err = room.JoinRoom(roomId, token)
+	Room, err := room.GetRoom(roomId)
 
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -200,70 +179,51 @@ func joinRoom(c *gin.Context) {
 		return
 	}
 
-	// 给房间内的其他用户发送提醒，有人加入
-	Room, _ := room.GetRoom(roomId)
+	err = Room.JoinRoom(User)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  err.Error(),
+		})
+		return
+	}
 
 	// 发送的消息
 	message, _ := json.Marshal(JSON{
 		"command": "join_room",
 		"data": JSON{
-			"token": token,
+			"token": User.UserId,
 		},
 	})
 
-	// 循环room.UserList
-	for _, v := range Room.UserList {
-		if v == token {
-			continue
-		}
-
-		// 获取连接
-		conn := wsconnect[v]
-		if conn == nil {
-			continue
-		}
-
-		// 发送消息
-		conn.WriteMessage(websocket.TextMessage, message)
-	}
+	// 排除当前用户
+	Room.SendMessage(message, []*user.User{User})
 
 	c.JSON(200, gin.H{
 		"code": 1,
-		"data": gin.H{"room_id": roomId, "token": token},
+		"data": gin.H{"room_id": roomId, "token": User.UserId},
 		"msg":  "success",
 	})
 }
 
 // 创建房间
 func createRoom(c *gin.Context) {
-	token, err := getToken(c)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"code": 0,
-			"msg":  err.Error(),
-		})
+	// get user
+	User := getUser(c)
+	if User == nil {
 		return
 	}
 
-	// 判断房间是否已经存在
-	isExist := room.IsRoomExist(token)
-	if isExist {
-		c.JSON(200, gin.H{
-			"code": 1,
-			"data": gin.H{"room_id": token},
-			"msg":  "success",
-		})
-		return
+	// 使用用户id来创建房间
+	Room, _ := room.GetRoom(User.UserId)
+	if Room == nil {
+		// 创建房间
+		Room = room.CreateRoom(User.UserId, User)
 	}
-
-	// 创建房间
-	roomId := room.CreateRoom(token, token)
-	// 把当前用户加入到房间中
-	_ = room.JoinRoom(roomId, token)
 
 	c.JSON(200, gin.H{
 		"code": 1,
-		"data": gin.H{"room_id": roomId},
+		"data": gin.H{"room_id": Room.RoomId},
 		"msg":  "success",
 	})
 }
@@ -295,21 +255,49 @@ func getToken(c *gin.Context) (token string, err error) {
 	return "", errors.New("用户没有token，没有登录")
 }
 
+// get User
+func getUser(c *gin.Context) *user.User {
+	token, err := getToken(c)
+
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  err.Error(),
+		})
+		return nil
+	}
+
+	User, err := user.GetUser(token)
+
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  err.Error(),
+		})
+		return nil
+	}
+
+	return User
+}
+
 // 登录
 func login(c *gin.Context) {
-	// 获取用户的cookie
-	token, _ := c.Cookie("token")
-	// 如果uuid不为空，直接返回登录成功，并且返回uuid
-	if token == "" {
-		// 创建一个uuid，并且写入到cookie中
+	// 获取用户token
+	token, err := getToken(c)
+
+	if err != nil {
+		// 创建用户
 		token = uuid.New().String()
 	}
+
+	// 创建用户
+	User := user.CreateUser(token)
 
 	c.SetCookie("token", token, 86400, "*", "*", false, true)
 
 	c.JSON(200, gin.H{
 		"code": 1,
-		"data": gin.H{"token": token},
+		"data": User.ToJson(),
 		"msg":  "success",
 	})
 
@@ -331,12 +319,8 @@ func syncGame(c *gin.Context) {
 	gameData := requestBody["board"]
 
 	// 获取用户的token
-	token, err := getToken(c)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"code": 0,
-			"msg":  err.Error(),
-		})
+	User := getUser(c)
+	if User == nil {
 		return
 	}
 
@@ -344,25 +328,13 @@ func syncGame(c *gin.Context) {
 		"command": "sync_game",
 		"data": JSON{
 			"board": gameData,
-			"token": token,
+			"token": User.UserId,
 		},
 	})
 
 	Room, _ := room.GetRoom(roomId)
 
-	// 循环room.UserList
-	for _, v := range Room.UserList {
-		if v == token {
-			continue
-		}
-		conn := wsconnect[v]
-		if conn == nil {
-			continue
-		}
-
-		// 发送消息
-		conn.WriteMessage(websocket.TextMessage, message)
-	}
+	Room.SendMessage(message, []*user.User{User})
 
 	c.JSON(200, gin.H{
 		"code": 1,
@@ -381,8 +353,16 @@ func ws(c *gin.Context) {
 	}
 	// 获取连接的token
 	token := c.Request.URL.Query().Get("token")
-	// 保存连接
-	wsconnect[token] = ws
+
+	User, err := user.GetUser(token)
+	if err != nil {
+		fmt.Println(err)
+		ws.Close()
+		return
+	}
+
+	// 设置用户 ws
+	User.SetWS(ws)
 
 	// 完成时关闭连接释放资源
 	defer ws.Close()
@@ -390,7 +370,7 @@ func ws(c *gin.Context) {
 		// 监听连接“完成”事件，其实也可以说丢失事件
 		<-c.Done()
 		// 删除元素
-		delete(wsconnect, token)
+		User.SetWS(nil)
 
 		// 这里也可以做用户在线/下线功能
 		fmt.Println("ws lost connection")
