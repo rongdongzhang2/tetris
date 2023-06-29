@@ -545,9 +545,9 @@
     // 房间人数
     var ROOM_USER_COUNT = 0;
 
-    // 游戏超时时间
+    // 游戏超时时间 单位毫秒
     var GAME_TIMEOUT;
-    // 游戏的结束时间
+    // 游戏的结束时间 单位毫秒
     var GAME_END_TIME;
 
     // 游戏随机数
@@ -580,11 +580,27 @@
                 if (data.code != 1) {
                     alert("登录失败")
                 }
+
                 // 保存token
                 TOKEN = data.data.token;
+                //
+                if (data.data.index) {
+                    GAME_INDEX = data.data.index;
+                }
+                if(data.data.score){
+                    score = data.data.score
+                }
 
                 conn_ws();
-                goRoom();
+
+                if (data.data.room_id) {
+                    ROOM_ID = data.data.room_id;
+                    getRoomInfo()
+                }
+
+                if (ROOM_ID == "") {
+                    goRoom();
+                }
 
             })
             .catch(error => {
@@ -593,6 +609,7 @@
 
 
     }
+
 
     // 连接ws
     function conn_ws() {
@@ -616,9 +633,11 @@
                 GAME_INDEX = 0;
                 GAME_TIMEOUT = json.data.timeout;
                 // 游戏结束时间
-                GAME_END_TIME = new Date().getTime() + GAME_TIMEOUT * 1000;
+                GAME_END_TIME = new Date().getTime() + GAME_TIMEOUT;
 
                 beginGame();
+
+
             }
             if (json.command == 'join_room') {
                 // 加入房间
@@ -632,6 +651,20 @@
                 user_token = json.data.token
 
                 setCompetitorBar(user_token, board);
+            }
+
+            if (json.command == 'sync_game_status') {
+                // 游戏同步
+                board = json.data.board;
+                user_token = json.data.token
+
+                GAME_TIMEOUT = json.data.timeout;
+                GAME_STATUS = json.data.game_status;
+
+                // 循环 user_list
+                for (var i = 0; i < json.data.user_list.length; i++) {
+                    setCompetitorData(json.data.user_list[i])
+                }
             }
         };
 
@@ -654,8 +687,35 @@
 
     }
 
+    // 设置游戏状态
+    function setGameStatus(game_status) {
+        GAME_STATUS = game_status;
+
+        switch (GAME_STATUS) {
+            case 0:
+                if (ROOM_ID) {
+                    // 隐藏创建房间按钮
+                    document.getElementById("CreateRoom").style.display = "none";
+                }
+                // 表示游戏未开始，可以显示开始游戏按钮
+                document.getElementById("start_game").style.display = "block"
+
+                break;
+
+            case 1: // 正在游戏中
+                document.getElementById("CreateRoom").style.display = "none";
+                document.getElementById("start_game").style.display = "none"
+                beginGame()
+                break;
+
+        }
+
+
+    }
+
+
     // 设置对手的游戏棋盘
-    function setCompetitorBar(userToken, board){
+    function setCompetitorBar(userToken, board) {
         var new_id = "competitor_area_" + userToken;
 
         var area_td = document.getElementById(new_id);
@@ -672,6 +732,83 @@
             }
         }
 
+    }
+
+    // 设置对手的游戏棋盘
+    function setCompetitorData(data) {
+        var userToken = data.token;
+        var userScore = data.score;
+        var userBoard = data.board || [];
+
+        if (userToken == TOKEN) {
+            return;
+        }
+
+        var new_id = "competitor_area_" + userToken;
+
+        var area_td = document.getElementById(new_id);
+
+        // 如果没有找到，则退出
+        if (area_td == null) {
+            buildCompetitorBar(userToken)
+            area_td = document.getElementById(new_id);
+        }
+
+        // 找到area_td里面的class=board
+        var tbody = area_td.getElementsByClassName("board")[0];
+
+        // 循环board
+        for (var i = 0; i < userBoard.length; i++) {
+            var bar = userBoard[i];
+            // 循环bar
+            for (var j = 0; j < bar.length; j++) {
+                setClass2(tbody, j, i, bar[j])
+            }
+        }
+
+        // 设置分数
+        var score = area_td.getElementsByClassName("user_score")[0];
+        score.innerHTML = "对手分数：" + userScore;
+    }
+
+    function reBuildCompetitorBar(user_list) {
+        var competitor_area = document.getElementById("competitor_area");
+        competitor_area.innerHTML = "";
+
+        for (var i = 0; i < user_list.length; i++) {
+            var user = user_list[i];
+            if (user.token == TOKEN) {
+                continue;
+            }
+
+            buildCompetitorBar(user.token)
+            setCompetitorData(user_list[i])
+        }
+    }
+
+    // 构建对手的游戏棋盘
+    function buildCompetitorBar(user_id) {
+        // 复制BoardRaw的内容添加到competitor_area中
+        var BoardRaw = document.getElementById("BoardRaw");
+
+        var competitor_area = document.getElementById("competitor_area");
+
+        // 创建一个td
+        var td = document.createElement("td");
+
+        var new_id = "competitor_area_" + user_id;
+        td.setAttribute("id", new_id);
+        td.setAttribute("style", "width: 100%;");
+
+        // 复制BoardRaw的内容添加到td中
+        td.innerHTML = BoardRaw.innerHTML;
+
+        // 将td加入到competitor_area中
+        competitor_area.appendChild(td);
+
+        // 设置对手的名字
+        var competitor_name = document.getElementById(new_id);
+        competitor_name.getElementsByClassName("user_name")[0].innerHTML = "对手ID:" + user_id;
     }
 
     // 获取domain
@@ -859,7 +996,8 @@
             "room_id": ROOM_ID,
             "token": token,
             "score": score,
-            "game_state": gameState
+            "game_state": gameState,
+            "index": GAME_INDEX
         }
 
         const url = getDomain() + '/api/sync_game';
@@ -879,6 +1017,52 @@
                 console.error('Error:', error);
             });
 
+    }
+
+
+    // 获取房间信息
+    function getRoomInfo() {
+        // 判断当前状态，是否可以创建房间
+        if (TOKEN === "" || WS == null) {
+            alert("当前状态不正常");
+            return;
+        }
+
+        const url = getDomain() + '/api/get_room_info';
+        const data = {
+            token: TOKEN
+        };
+
+        fetch(url, {
+            method: 'GET',
+            headers: {},
+            query: data
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.code != 0) {
+                    alert("获取房间信息失败");
+                    return;
+                }
+                if (data.data.rand_arr) {
+                    GAME_RANDOM = data.data.rand_arr;
+                }
+
+                if (data.data.owner) {
+                    ROOM_OWNER = data.data.owner;
+                }
+
+                if (data.data.timeout) {
+                    GAME_TIMEOUT = data.data.timeout;
+                }
+
+                // 构建对手的界面
+                reBuildCompetitorBar(data.data.user_list);
+                setGameStatus(data.data.game_status)
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
     }
 
 </script>
@@ -907,7 +1091,7 @@
         speed = 1;
         outTime = 1100 - speed * 100;
         // 积分
-        score = 0;
+        // score = 0;
         if (gameState != 0) return;
 
         firstView = true;
@@ -926,19 +1110,16 @@
     // 游戏结束计时器
     function startTimer() {
         sTimer = window.setInterval(function () {
-            // 判断是否已经到结束游戏时间
-            var curr_time = new Date().getTime();
+            syncGame();
+            // // 判断是否已经到结束游戏时间
+            // var curr_time = new Date().getTime();
+            //
+            // if (curr_time >= GAME_END_TIME) {
+            //     window.clearInterval(sTimer);
+            // }
 
-            if(curr_time >= GAME_END_TIME){
-                console.log("游戏结束")
-                alert("游戏结束");
-                window.clearInterval(sTimer);
-                // 暂停游戏
-                gameOver()
-            }
-        }, 1000);
+        }, 100);
     }
-
 
 
     // 获取整个棋盘的数据
@@ -952,7 +1133,6 @@
         }
         return board;
     }
-
 
 
     // 控制键
@@ -1116,7 +1296,6 @@
         if (gameState != 1) return;
 
         syncGame();
-
         // 是否可以继续下降
         dropLine = true;
         // 如果已经到了最底下就不能再下降了
@@ -1146,7 +1325,6 @@
     }
 
 
-
     function pauseGame2() {
         if (gameState == 0) return;
         gameState = 2;
@@ -1158,7 +1336,6 @@
     }
 
     document.oncontextmenu = fMnu;
-
 
 
     // 把准备区的方块放到游戏区来，然后在准备区生成一个方块
@@ -1436,7 +1613,7 @@
     }
 
     // 游戏结束
-    function gameOver(){
+    function gameOver() {
         alert("Game Over!");
         window.clearInterval(mTimer);
         // 游戏结束
@@ -1455,9 +1632,6 @@
     }
 
     unSel();
-
-
-
 
 
 </script>

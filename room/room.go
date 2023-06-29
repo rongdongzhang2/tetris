@@ -1,6 +1,7 @@
 package room
 
 import (
+	"encoding/json"
 	"errors"
 	"math/rand"
 	"sync"
@@ -16,7 +17,7 @@ type Room struct {
 	UserList   map[string]*user.User `json:"user_list"`   // 房间内的用户列表
 	GameStatus int                   `json:"game_status"` // 0-未开始,1-进行中
 	RandArr    []int                 `json:"rand_arr"`    // 随机数数组
-	Timeout    int                   `json:"timeout"`     // 超时时间
+	Timeout    int                   `json:"timeout"`     // 超时时间,毫秒
 	LastActive int64                 `json:"last_active"` // 最后活跃时间,会用定时任务清除掉长时间未活跃的房间
 }
 
@@ -87,11 +88,43 @@ func (Room *Room) StartGame() error {
 	}
 
 	Room.GameStatus = 1
-	Room.Timeout = 5 * 60
+	// Timeout 5分钟 毫秒
+	Room.Timeout = 5 * 60 * 1000
 	Room.LastActive = time.Now().Unix()
 	Room.RandArr = generateRandom()
 
+	go func() {
+		// 每个100毫秒 调用一次 SendGameStatus
+		ticker := time.NewTicker(100 * time.Millisecond)
+
+		for {
+			select {
+			case <-ticker.C:
+				// 如果TimeOut时间到了，就停止定时器
+				if Room.Timeout <= 0 {
+					ticker.Stop()
+					Room.GameOver()
+					return
+				}
+				// 每次执行，TimeOut减少100毫秒
+				Room.Timeout -= 100
+
+				// 将房间信息发送给房间内的每个用户
+				Room.SendGameStatus()
+			}
+		}
+
+	}()
+
 	return nil
+}
+
+// GameOver 游戏结束
+func (Room *Room) GameOver() {
+	// 修改游戏状态
+	Room.GameStatus = 0
+	Room.Timeout = 0
+	Room.RandArr = []int{}
 }
 
 // GetRandArr 获取随机数
@@ -149,4 +182,57 @@ func (Room Room) SendMessage(message []byte, excludeUser []*user.User) {
 
 		User.Message <- message
 	}
+}
+
+// SendGameStatus 发送游戏状态给所有用户
+func (Room *Room) SendGameStatus() {
+	// 获取游戏状态
+	msg := make(map[string]any)
+	// 游戏状态
+	msg["game_status"] = Room.GameStatus
+	// 游戏剩余时间
+	msg["timeout"] = Room.Timeout // 毫秒
+	// 每个用户的棋盘和分数
+	msg["user_list"] = []any{}
+	for _, User := range Room.UserList {
+		userInfo := make(map[string]any)
+		userInfo["token"] = User.UserId
+		userInfo["score"] = User.Score
+		userInfo["board"] = User.Board
+		msg["user_list"] = append(msg["user_list"].([]any), userInfo)
+	}
+
+	jsonData := make(map[string]any)
+	jsonData["command"] = "sync_game_status"
+	jsonData["data"] = msg
+
+	// 将msg json化
+	message, _ := json.Marshal(jsonData)
+	Room.SendMessage(message, nil)
+}
+
+// room info to json
+func (Room *Room) ToJson() map[string]interface{} {
+	// 获取游戏状态
+	msg := make(map[string]interface{})
+	// 游戏状态
+	msg["game_status"] = Room.GameStatus
+	// 游戏剩余时间
+	msg["timeout"] = Room.Timeout // 毫秒
+	// 随机数
+	msg["rand_arr"] = Room.RandArr
+	// 房主
+	msg["owner"] = Room.Owner.UserId
+
+	// 每个用户的棋盘和分数
+	msg["user_list"] = []interface{}{}
+	for _, User := range Room.UserList {
+		userInfo := make(map[string]interface{})
+		userInfo["token"] = User.UserId
+		userInfo["score"] = User.Score
+		userInfo["board"] = User.Board
+		msg["user_list"] = append(msg["user_list"].([]interface{}), userInfo)
+	}
+
+	return msg
 }

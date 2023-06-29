@@ -54,6 +54,8 @@ func main() {
 		api.POST("/sync_game", syncGame)
 		// 获取游戏棋盘数据
 		api.POST("/get_game_board", getGameBoard)
+		// 获取房间信息
+		api.GET("/get_room_info", getRoomInfo)
 
 	}
 	// ws连接
@@ -63,6 +65,39 @@ func main() {
 	r.Run("0.0.0.0:80")
 
 	go room.CheckRoomActive()
+}
+
+// 获取房间信息
+func getRoomInfo(c *gin.Context) {
+	User := getUser(c)
+	if User == nil {
+		return
+	}
+
+	// 获取房间id
+	roomId := User.GetRoomId()
+	if roomId == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  "获取房间信息失败",
+		})
+		return
+	}
+
+	// 获取房间信息
+	Room, err := room.GetRoom(roomId)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"data": Room.ToJson(),
+	})
 }
 
 // 获取游戏棋盘
@@ -137,7 +172,7 @@ func startGame(c *gin.Context) {
 		"command": "start_game",
 		"data": JSON{
 			"randArr": Room.RandArr,
-			"timeout": Room.Timeout,
+			"timeout": Room.Timeout, // 毫秒
 		},
 	}
 
@@ -312,11 +347,14 @@ func syncGame(c *gin.Context) {
 		return
 	}
 
-	// 获取房间号
-	roomId := requestBody["room_id"].(string)
+	// 将 requestBody["board"] 转换为 [][]string 赋值给 gameData
+	board := requestBody["board"].([]interface{})
 
-	// 获取游戏棋盘数据
-	gameData := requestBody["board"]
+	// 分数
+	score := int(requestBody["score"].(float64))
+
+	// index
+	index := int(requestBody["index"].(float64))
 
 	// 获取用户的token
 	User := getUser(c)
@@ -324,17 +362,11 @@ func syncGame(c *gin.Context) {
 		return
 	}
 
-	message, _ := json.Marshal(JSON{
-		"command": "sync_game",
-		"data": JSON{
-			"board": gameData,
-			"token": User.UserId,
-		},
-	})
-
-	Room, _ := room.GetRoom(roomId)
-
-	Room.SendMessage(message, []*user.User{User})
+	// 设置用户信息
+	User.Score = score
+	// Board
+	User.Board = board
+	User.Index = index
 
 	c.JSON(200, gin.H{
 		"code": 1,

@@ -12,6 +12,9 @@ type User struct {
 	ws         *websocket.Conn `json:"_"`           // 不需要转换为json
 	lastActive int64           `json:"last_active"` // 最后活跃时间,会用定时任务清除掉长时间未活跃的房间
 	Message    chan []byte     `json:"_"`           // 不需要转换为json
+	Score      int             `json:"score"`
+	Board      []interface{}   `json:"board"`
+	Index      int             `json:"index"`
 }
 
 // List  用户列表
@@ -86,5 +89,7 @@ func (u *User) ToJson() map[string]interface{} {
 		"token":       u.UserId,
 		"room_id":     u.roomId,
 		"last_active": u.lastActive,
+		"index":       u.Index,
+		"score":       u.Score,
 	}
 }
