@@ -660,6 +660,7 @@
                 // 游戏状态,开始游戏
                 GAME_STATUS = 1;
                 USER_GAME_STATUS = 1;
+                setGameStatus(1)
                 beginGameClear();
                 beginGame();
             }
@@ -670,13 +671,6 @@
                 getRoomInfo();
             }
 
-            // if (json.command == 'sync_game') {
-            //     // 游戏同步
-            //     board = json.data.board;
-            //     user_token = json.data.token
-            //
-            //     setCompetitorBar(user_token, board);
-            // }
 
             // 同步玩家状态
             if (json.command == 'sync_game_status') {
@@ -688,6 +682,34 @@
                 for (var i = 0; i < json.data.user_list.length; i++) {
                     setCompetitorData(json.data.user_list[i])
                 }
+            }
+
+            if (json.command == "game_over") {
+                console.log(json.data)
+                var maxScore = 0;
+                var maxToken = "";
+                // 循环对象
+                for (var key in json.data) {
+                    if(json.data[key] >= maxScore){
+                        maxScore = json.data[key];
+                        maxToken = key;
+                    }
+                }
+
+                if(maxScore > 0){
+                    alert("游戏结束，获胜者是：" + maxToken + "，分数为：" + maxScore)
+                }
+                // 游戏结束
+                GAME_STATUS = 0;
+                USER_GAME_STATUS = 0;
+                score = 0;
+                GAME_INDEX = 0;
+                GAME_TIMEOUT = 0;
+                GAME_END_TIME = 0;
+                GAME_RANDOM = [];
+                // 清空棋盘
+                clearBoard();
+                setGameStatus(0)
             }
         };
 
@@ -708,6 +730,27 @@
             WS.close();
         }
 
+    }
+
+    function clearBoard() {
+        // 游戏区
+        for (var i = 0; i < 16; i++) {
+            for (var j = 0; j < 10; j++) {
+                setClass(j, i, "BK")
+            }
+        }
+        BX = BY =  new Array(4)
+
+        // 预览区
+        // 预览区空白
+        for (i = 0; i < 4; i++) {
+            for (j = 0; j < 4; j++) {
+                previewBar.children[j].children[i].className = "BK";
+            }
+        }
+        PX = PY = new Array(4)
+
+        getRoomInfo();
     }
 
     // 设置游戏状态

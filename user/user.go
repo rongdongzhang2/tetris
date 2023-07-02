@@ -96,3 +96,11 @@ func (u *User) ToJson() map[string]interface{} {
 		"game_status": u.GameStatus,
 	}
 }
+
+// ClearGameData 清除游戏数据
+func (u *User) ClearGameData() {
+	u.Score = 0
+	u.Board = []interface{}{}
+	u.Index = 0
+	u.GameStatus = 0
+}

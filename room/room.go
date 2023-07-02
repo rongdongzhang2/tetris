@@ -95,17 +95,33 @@ func (Room *Room) StartGame() error {
 
 	go func() {
 		// 每个100毫秒 调用一次 SendGameStatus
-		ticker := time.NewTicker(100 * time.Millisecond)
+		ticker := time.NewTicker(200 * time.Millisecond)
 
 		for {
 			select {
 			case <-ticker.C:
+				GameOver := false
 				// 如果TimeOut时间到了，就停止定时器
 				if Room.Timeout <= 0 {
+					GameOver = true
+				}
+				allOver := true
+				// 如果房间内的用户全部都游戏结束了
+				for _, User := range Room.UserList {
+					if User.GameStatus != 2 {
+						allOver = false
+					}
+				}
+				if allOver {
+					GameOver = true
+				}
+
+				if GameOver {
 					ticker.Stop()
 					Room.GameOver()
 					return
 				}
+
 				// 每次执行，TimeOut减少100毫秒
 				Room.Timeout -= 100
 
@@ -125,6 +141,27 @@ func (Room *Room) GameOver() {
 	Room.GameStatus = 0
 	Room.Timeout = 0
 	Room.RandArr = []int{}
+
+	msg := make(map[string]any)
+
+	// 获取没位用户的分数
+	for _, User := range Room.UserList {
+		msg[User.UserId] = User.Score
+		// 清除游戏数据
+		User.ClearGameData()
+	}
+
+	// 将房间信息发送给房间内的每个用户
+	// 发送的消息
+	jsonData := make(map[string]any)
+	jsonData["command"] = "game_over"
+	jsonData["data"] = msg
+
+	// 将msg json化
+	message, _ := json.Marshal(jsonData)
+
+	// 排除当前用户
+	Room.SendMessage(message, nil)
 }
 
 // GetRandArr 获取随机数
