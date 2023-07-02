@@ -95,7 +95,7 @@ func (Room *Room) StartGame() error {
 
 	go func() {
 		// 每个100毫秒 调用一次 SendGameStatus
-		ticker := time.NewTicker(200 * time.Millisecond)
+		ticker := time.NewTicker(100 * time.Millisecond)
 
 		for {
 			select {
