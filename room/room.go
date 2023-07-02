@@ -154,6 +154,7 @@ func (Room *Room) GetRandArr(index int) ([]int, error) {
 
 // 创建一批随机数
 func generateRandom() []int {
+	rand.Seed(time.Now().UnixNano())
 	var arr []int
 	for i := 0; i < 100; i++ {
 		// 创建一个随机数 1-20

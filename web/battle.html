@@ -1,7 +1,16 @@
 <HTML>
 <HEAD>
     <title>Tetris</title>
-    <script>window.resizeTo(410, 450)</script>
+    <script>
+        window.resizeTo(410, 450)
+
+        function unSel() {
+            document.execCommand("Unselect");
+            window.setTimeout("unSel()", 100);
+        }
+
+        unSel();
+    </script>
     <style>
         .MB {
             BACKGROUND-COLOR: firebrick;
@@ -527,8 +536,11 @@
 </HTML>
 <script>
     // 在这里定义全局的变量
-    // 游戏状态，0表示没开始游戏，1表示正在游戏，2表示暂停游戏
+    // 游戏状态，0表示没开始游戏，1表示正在游戏
     var GAME_STATUS = 0;
+
+    // 用户的游戏状态 0-未开始,1-正在游戏,2-已结束
+    var USER_GAME_STATUS;
 
     // 房间id string
     var ROOM_ID = "";
@@ -539,13 +551,13 @@
     // webSocket连接
     var WS;
 
-    // 是否房主
-    var IS_OWNER = false;
+    // 当前房间的房主
+    var ROOM_OWNER;
 
     // 房间人数
     var ROOM_USER_COUNT = 0;
 
-    // 游戏超时时间 单位毫秒
+    // 游戏超时时间 单位毫秒 timeout 为0 游戏结束
     var GAME_TIMEOUT;
     // 游戏的结束时间 单位毫秒
     var GAME_END_TIME;
@@ -580,34 +592,45 @@
                 if (data.code != 1) {
                     alert("登录失败")
                 }
-
                 // 保存token
                 TOKEN = data.data.token;
-                //
-                if (data.data.index) {
-                    GAME_INDEX = data.data.index;
-                }
-                if(data.data.score){
-                    score = data.data.score
-                }
-
+                // 只要登录成功，就开始连接ws
                 conn_ws();
 
-                if (data.data.room_id) {
-                    ROOM_ID = data.data.room_id;
+                GAME_INDEX = data.data.index ?? 0;
+                score = data.data.score ?? 0;
+                ROOM_ID = data.data.room_id ?? "";
+                USER_GAME_STATUS = data.data.game_status ?? 0;
+
+                // 表示正在游戏中
+                if (data.data.board) {
+                    // 如果是正在游戏中，调用了Login，则证明用户刷新了页面。则index需要-1
+                    // 因为原本在预览区的方块，还没有得到显示，就被刷新页面了
+                    GAME_INDEX -= 1;
+                    setSelfBoard(data.data.board)
+                }
+
+                if (ROOM_ID !== "") {
                     getRoomInfo()
                 }
 
-                if (ROOM_ID == "") {
-                    goRoom();
-                }
-
+                // 进入房间中
+                goRoom();
             })
             .catch(error => {
                 console.error('Error:', error);
             });
 
 
+    }
+
+    // 设置自己的棋盘
+    function setSelfBoard(board) {
+        for (var i = 0; i < board.length; i++) {
+            for (var j = 0; j < board[i].length; j++) {
+                setClass(j, i, board[i][j])
+            }
+        }
     }
 
 
@@ -634,32 +657,32 @@
                 GAME_TIMEOUT = json.data.timeout;
                 // 游戏结束时间
                 GAME_END_TIME = new Date().getTime() + GAME_TIMEOUT;
-
+                // 游戏状态,开始游戏
+                GAME_STATUS = 1;
+                USER_GAME_STATUS = 1;
+                beginGameClear();
                 beginGame();
-
-
             }
             if (json.command == 'join_room') {
                 // 加入房间
                 console.log(json.data.token + "加入房间")
-                join_room(json.data.token)
+                // 重新加载房间数据
+                getRoomInfo();
             }
 
-            if (json.command == 'sync_game') {
-                // 游戏同步
-                board = json.data.board;
-                user_token = json.data.token
+            // if (json.command == 'sync_game') {
+            //     // 游戏同步
+            //     board = json.data.board;
+            //     user_token = json.data.token
+            //
+            //     setCompetitorBar(user_token, board);
+            // }
 
-                setCompetitorBar(user_token, board);
-            }
-
+            // 同步玩家状态
             if (json.command == 'sync_game_status') {
                 // 游戏同步
-                board = json.data.board;
-                user_token = json.data.token
-
                 GAME_TIMEOUT = json.data.timeout;
-                GAME_STATUS = json.data.game_status;
+                // GAME_STATUS = json.data.game_status;
 
                 // 循环 user_list
                 for (var i = 0; i < json.data.user_list.length; i++) {
@@ -689,23 +712,31 @@
 
     // 设置游戏状态
     function setGameStatus(game_status) {
-        GAME_STATUS = game_status;
+        USER_GAME_STATUS = game_status;
 
-        switch (GAME_STATUS) {
+        switch (USER_GAME_STATUS) {
             case 0:
                 if (ROOM_ID) {
                     // 隐藏创建房间按钮
                     document.getElementById("CreateRoom").style.display = "none";
                 }
-                // 表示游戏未开始，可以显示开始游戏按钮
+
+                // 未开始状态，可以显示开始游戏按钮
                 document.getElementById("start_game").style.display = "block"
+
+                // 如果当前用户不是房主，则隐藏开始游戏按钮
+                if (ROOM_ID && ROOM_OWNER !== TOKEN) {
+                    // 表示游戏未开始，可以显示开始游戏按钮
+                    document.getElementById("start_game").style.display = "none"
+                }
+
 
                 break;
 
             case 1: // 正在游戏中
+            case 2:
                 document.getElementById("CreateRoom").style.display = "none";
                 document.getElementById("start_game").style.display = "none"
-                beginGame()
                 break;
 
         }
@@ -740,7 +771,7 @@
         var userScore = data.score;
         var userBoard = data.board || [];
 
-        if (userToken == TOKEN) {
+        if (userToken === TOKEN) {
             return;
         }
 
@@ -748,7 +779,7 @@
 
         var area_td = document.getElementById(new_id);
 
-        // 如果没有找到，则退出
+        // 如果没有找到，则创建
         if (area_td == null) {
             buildCompetitorBar(userToken)
             area_td = document.getElementById(new_id);
@@ -775,6 +806,7 @@
         var competitor_area = document.getElementById("competitor_area");
         competitor_area.innerHTML = "";
 
+        ROOM_USER_COUNT = user_list.length;
         for (var i = 0; i < user_list.length; i++) {
             var user = user_list[i];
             if (user.token == TOKEN) {
@@ -840,8 +872,7 @@
                     alert("创建房间成功")
                     // 房间号
                     ROOM_ID = data.data.room_id;
-                    // 创建房间的人为房主
-                    IS_OWNER = true;
+
                     // 表示只有自己
                     ROOM_USER_COUNT = 1;
                     // 邀请链接
@@ -867,6 +898,12 @@
             // 没有邀请
             return;
         }
+
+        // 如果当前玩家已经在房间中，则不需要再次加入
+        if (roomId === ROOM_ID) {
+            return;
+        }
+
 
         const url = getDomain() + '/api/join_room';
 
@@ -933,33 +970,31 @@
     }
 
     // 有用户加入房间执行代码
-    function join_room(user_id) {
-        // 房间人数加一
-        ROOM_USER_COUNT = ROOM_USER_COUNT + 1;
-
-        // 复制BoardRaw的内容添加到competitor_area中
-        var BoardRaw = document.getElementById("BoardRaw");
-
-        var competitor_area = document.getElementById("competitor_area");
-
-
-        // 创建一个td
-        var td = document.createElement("td");
-
-        var new_id = "competitor_area_" + user_id;
-        td.setAttribute("id", new_id);
-        td.setAttribute("style", "width: 100%;");
-
-        // 复制BoardRaw的内容添加到td中
-        td.innerHTML = BoardRaw.innerHTML;
-
-        // 将td加入到competitor_area中
-        competitor_area.appendChild(td);
-
-        // 设置对手的名字
-        var competitor_name = document.getElementById(new_id);
-        competitor_name.getElementsByClassName("user_name")[0].innerHTML = "对手ID:" + user_id;
-    }
+    // function join_room(user_id) {
+    //     getRoomInfo();
+    // // 复制BoardRaw的内容添加到competitor_area中
+    // var BoardRaw = document.getElementById("BoardRaw");
+    //
+    // var competitor_area = document.getElementById("competitor_area");
+    //
+    //
+    // // 创建一个td
+    // var td = document.createElement("td");
+    //
+    // var new_id = "competitor_area_" + user_id;
+    // td.setAttribute("id", new_id);
+    // td.setAttribute("style", "width: 100%;");
+    //
+    // // 复制BoardRaw的内容添加到td中
+    // td.innerHTML = BoardRaw.innerHTML;
+    //
+    // // 将td加入到competitor_area中
+    // competitor_area.appendChild(td);
+    //
+    // // 设置对手的名字
+    // var competitor_name = document.getElementById(new_id);
+    // competitor_name.getElementsByClassName("user_name")[0].innerHTML = "对手ID:" + user_id;
+    // }
 
     // 获取游戏棋盘数据
     function get_game_data() {
@@ -994,9 +1029,9 @@
         var data = {
             "board": board,
             "room_id": ROOM_ID,
-            "token": token,
+            "token": TOKEN,
             "score": score,
-            "game_state": gameState,
+            "game_status": USER_GAME_STATUS,
             "index": GAME_INDEX
         }
 
@@ -1040,25 +1075,24 @@
         })
             .then(response => response.json())
             .then(data => {
-                if (data.code != 0) {
-                    alert("获取房间信息失败");
+                if (data.code == 0) {
+                    alert(data.msg);
                     return;
                 }
-                if (data.data.rand_arr) {
-                    GAME_RANDOM = data.data.rand_arr;
-                }
 
-                if (data.data.owner) {
-                    ROOM_OWNER = data.data.owner;
-                }
+                GAME_RANDOM = data.data.rand_arr;
+                ROOM_OWNER = data.data.owner;
+                GAME_TIMEOUT = data.data.timeout;
+                GAME_STATUS = data.data.game_status;
+                setGameStatus(data.data.game_status)
 
-                if (data.data.timeout) {
-                    GAME_TIMEOUT = data.data.timeout;
+                if (GAME_STATUS == 1) {
+                    beginGame();
                 }
 
                 // 构建对手的界面
                 reBuildCompetitorBar(data.data.user_list);
-                setGameStatus(data.data.game_status)
+
             })
             .catch(error => {
                 console.error('Error:', error);
@@ -1075,8 +1109,6 @@
     var PY = new Array(4);
     var mTimer
     var firstView
-    // 0-未开始 1-开始 2-game over
-    var gameState = 0;
 
     var score = 0;
 
@@ -1086,26 +1118,56 @@
     function beginGame() {
         startTimer();
         console.log("开始游戏");
-        gameState = 0;
+
         // 速度
-        speed = 1;
+        speed = Math.floor(score / 3000) + 1;
         outTime = 1100 - speed * 100;
-        // 积分
-        // score = 0;
-        if (gameState != 0) return;
 
-        firstView = true;
+        if (GAME_STATUS != 1) {
+            return;
+        }
 
+        if (USER_GAME_STATUS != 1) {
+            return;
+        }
+
+        // if (!searchBX()) {
+        //     randBar();
+        // }
+        searchBX();
+        moveBar();
+
+        window.clearInterval(mTimer);
+        mTimer = window.setInterval("moveBar()", outTime);
+    }
+
+    function searchBX() {
+        let bxi = 0;
+        let flag = false;
+        // 高度为16
+        for (j = 0; j < 16; j++)
+            // 宽度为10
+            for (i = 0; i < 10; i++)
+                if (getClass(i, j,) == "MB") {
+                    BX[bxi] = i;
+                    BY[bxi] = j;
+                    bxi++;
+                    flag = true;
+                }
+
+
+        return flag;
+    }
+
+    // 开始游戏，清除方块
+    function beginGameClear() {
         // 高度为16
         for (j = 0; j < 16; j++)
             // 宽度为10
             for (i = 0; i < 10; i++)
                 setClass(i, j, "BK");
-        randBar();
-        gameState = 1;
-        window.clearInterval(mTimer);
-        mTimer = window.setInterval("moveBar()", outTime);
     }
+
 
     // 游戏结束计时器
     function startTimer() {
@@ -1118,7 +1180,7 @@
             //     window.clearInterval(sTimer);
             // }
 
-        }, 100);
+        }, 200);
     }
 
 
@@ -1137,7 +1199,7 @@
 
     // 控制键
     function keyControl() {
-        if (gameState != 1) return;
+        if (USER_GAME_STATUS != 1) return;
         switch (event.keyCode) {
             case 37: {    //left
                 // 如果到了最左边
@@ -1267,8 +1329,10 @@
                 for (l = 0; l < 10; l++) setClass(l, 0, "BK");
             }
         }
-        // 新生成一个随机方块，并且放一个方块到开始区
-        randBar();
+        BX = new Array(4)
+        BY = new Array(4)
+        moveBar()
+
         // 加积分和调速度
         speed = Math.floor(score / 3000) + 1;
         outTime = 1100 - speed * 100;
@@ -1290,54 +1354,6 @@
         bar.children[y].children[x].className = cName;
     }
 
-    //
-    function moveBar() {
-        // 如果游戏不是开始状态，直接结束
-        if (gameState != 1) return;
-
-        syncGame();
-        // 是否可以继续下降
-        dropLine = true;
-        // 如果已经到了最底下就不能再下降了
-        for (i = 0; i < 4; i++)
-            if (BY[i] == 15)
-                dropLine = false;
-
-
-        if (dropLine)
-            // 如果下一个位置有方块的颜色了，也不能下降了
-            for (i = 0; i < 4; i++)
-                if (getClass(BX[i], BY[i] + 1) == "SB")
-                    dropLine = false;
-
-        // 如果不能下降了
-        if (!dropLine) {
-            // 停止计时器
-            window.clearInterval(mTimer);
-
-            delLine();
-            return;
-        }
-        // 下降一个位置 MB是红色，在下降的时候，还是红色的
-        for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "BK");
-        for (i = 0; i < 4; i++) BY[i] = BY[i] + 1;
-        for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "MB");
-    }
-
-
-    function pauseGame2() {
-        if (gameState == 0) return;
-        gameState = 2;
-        window.clearInterval(mTimer);
-    }
-
-    function fMnu() {
-        return false;
-    }
-
-    document.oncontextmenu = fMnu;
-
-
     // 把准备区的方块放到游戏区来，然后在准备区生成一个方块
     function randBar() {
         // 随机数
@@ -1349,19 +1365,20 @@
         if (GAME_RANDOM.length - GAME_INDEX < 20) {
             get_game_data();
         }
-
-        // 如果不是第一次
-        if (!firstView)
-            // 把准备区的图形复制到游戏区来
-            // 因为后面准备区的图形就变了
+        firstView = true;
+        // 如果预备区有值
+        if (PX[0] != undefined) {
+            firstView = false;
             for (i = 0; i < 4; i++) {
                 BX[i] = PX[i];
                 BY[i] = PY[i];
             }
+        }
+
 
         // 所有图形都是由四个点组成的，所以只需要标明四个点即可  0-3
         // value 就是x y的位置
-        // 但是 为什么x要从4开始就不知道了，因为最后它减了3来显示位置
+        // 但是 为什么x要从4开始就不知道了，因为最后它减了3来显示位置。下面的注释有给出答案
         switch (randNum) {
             case 1: {
                 PX[0] = 4;
@@ -1612,26 +1629,355 @@
         for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "MB");
     }
 
+
+    // 预览区方块
+    function previewBarSet() {
+        // 如果预览区没有方块，就创建一个
+        if (PX[0] || PX[1] || PX[2] || PX[3]) {
+            // 证明预览区有方块
+            return;
+        }
+
+        // 创建一个方块
+        var randNum = GAME_RANDOM[GAME_INDEX];
+        GAME_INDEX++;
+
+        // 如果准备见底，就需要获取新的数据
+        if (GAME_RANDOM.length - GAME_INDEX < 20) {
+            get_game_data();
+        }
+
+        // 所有图形都是由四个点组成的，所以只需要标明四个点即可  0-3
+        // value 就是x y的位置
+        // 但是 为什么x要从4开始就不知道了，因为最后它减了3来显示位置。下面的注释有给出答案
+        switch (randNum) {
+            case 1: {
+                PX[0] = 4;
+                PY[0] = 0;
+                PX[1] = 4;
+                PY[1] = 1;
+                PX[2] = 5;
+                PY[2] = 1;
+                PX[3] = 6;
+                PY[3] = 1;
+                break;
+            }
+            case 2: {
+                PX[0] = 4;
+                PY[0] = 0;
+                PX[1] = 5;
+                PY[1] = 0;
+                PX[2] = 4;
+                PY[2] = 1;
+                PX[3] = 4;
+                PY[3] = 2;
+                break;
+            }
+            case 3: {
+                PX[0] = 4;
+                PY[0] = 0;
+                PX[1] = 5;
+                PY[1] = 0;
+                PX[2] = 6;
+                PY[2] = 0;
+                PX[3] = 6;
+                PY[3] = 1;
+                break;
+            }
+            case 4: {
+                PX[0] = 5;
+                PY[0] = 0;
+                PX[1] = 5;
+                PY[1] = 1;
+                PX[2] = 5;
+                PY[2] = 2;
+                PX[3] = 4;
+                PY[3] = 2;
+                break;
+            }
+            case 5: {
+                PX[0] = 6;
+                PY[0] = 0;
+                PX[1] = 6;
+                PY[1] = 1;
+                PX[2] = 4;
+                PY[2] = 1;
+                PX[3] = 5;
+                PY[3] = 1;
+                break;
+            }
+            case 6: {
+                PX[0] = 4;
+                PY[0] = 0;
+                PX[1] = 4;
+                PY[1] = 1;
+                PX[2] = 4;
+                PY[2] = 2;
+                PX[3] = 5;
+                PY[3] = 2;
+                break;
+            }
+            case 7: {
+                PX[0] = 4;
+                PY[0] = 0;
+                PX[1] = 4;
+                PY[1] = 1;
+                PX[2] = 5;
+                PY[2] = 0;
+                PX[3] = 6;
+                PY[3] = 0;
+                break;
+            }
+            case 8: {
+                PX[0] = 4;
+                PY[0] = 0;
+                PX[1] = 5;
+                PY[1] = 0;
+                PX[2] = 5;
+                PY[2] = 1;
+                PX[3] = 5;
+                PY[3] = 2;
+                break;
+            }
+            case 9: {
+                PX[0] = 4;
+                PY[0] = 0;
+                PX[1] = 5;
+                PY[1] = 0;
+                PX[2] = 5;
+                PY[2] = 1;
+                PX[3] = 6;
+                PY[3] = 1;
+                break;
+            }
+            case 10: {
+                PX[0] = 5;
+                PY[0] = 0;
+                PX[1] = 5;
+                PY[1] = 1;
+                PX[2] = 4;
+                PY[2] = 1;
+                PX[3] = 4;
+                PY[3] = 2;
+                break;
+            }
+            case 11: {
+                PX[0] = 4;
+                PY[0] = 1;
+                PX[1] = 5;
+                PY[1] = 1;
+                PX[2] = 5;
+                PY[2] = 0;
+                PX[3] = 6;
+                PY[3] = 0;
+                break;
+            }
+            case 12: {
+                PX[0] = 4;
+                PY[0] = 0;
+                PX[1] = 4;
+                PY[1] = 1;
+                PX[2] = 5;
+                PY[2] = 1;
+                PX[3] = 5;
+                PY[3] = 2;
+                break;
+            }
+            case 13: {
+                PX[0] = 4;
+                PY[0] = 0;
+                PX[1] = 5;
+                PY[1] = 0;
+                PX[2] = 6;
+                PY[2] = 0;
+                PX[3] = 5;
+                PY[3] = 1;
+                break;
+            }
+            case 14: {
+                PX[0] = 4;
+                PY[0] = 0;
+                PX[1] = 4;
+                PY[1] = 1;
+                PX[2] = 4;
+                PY[2] = 2;
+                PX[3] = 5;
+                PY[3] = 1;
+                break;
+            }
+            case 15: {
+                PX[0] = 5;
+                PY[0] = 0;
+                PX[1] = 5;
+                PY[1] = 1;
+                PX[2] = 4;
+                PY[2] = 1;
+                PX[3] = 6;
+                PY[3] = 1;
+                break;
+            }
+            case 16: {
+                PX[0] = 5;
+                PY[0] = 0;
+                PX[1] = 5;
+                PY[1] = 1;
+                PX[2] = 5;
+                PY[2] = 2;
+                PX[3] = 4;
+                PY[3] = 1;
+                break;
+            }
+            case 17: {
+                PX[0] = 4;
+                PY[0] = 0;
+                PX[1] = 5;
+                PY[1] = 0;
+                PX[2] = 4;
+                PY[2] = 1;
+                PX[3] = 5;
+                PY[3] = 1;
+                break;
+            }
+            case 18: {
+                PX[0] = 4;
+                PY[0] = 0;
+                PX[1] = 5;
+                PY[1] = 0;
+                PX[2] = 4;
+                PY[2] = 1;
+                PX[3] = 5;
+                PY[3] = 1;
+                break;
+            }
+            case 19: {
+                PX[0] = 3;
+                PY[0] = 0;
+                PX[1] = 4;
+                PY[1] = 0;
+                PX[2] = 5;
+                PY[2] = 0;
+                PX[3] = 6;
+                PY[3] = 0;
+                break;
+            }
+            case 20: {
+                PX[0] = 5;
+                PY[0] = 0;
+                PX[1] = 5;
+                PY[1] = 1;
+                PX[2] = 5;
+                PY[2] = 2;
+                PX[3] = 5;
+                PY[3] = 3;
+                break;
+            }
+        }
+
+        // 预览区空白
+        for (i = 0; i < 4; i++) {
+            for (j = 0; j < 4; j++) {
+                previewBar.children[j].children[i].className = "BK";
+            }
+        }
+
+        // 这里的x为什么要减3，不知道，但是上面的设置是+3的基础之上的
+        // 这里为什么要+3的基础，是因为游戏区的宽度是10，然而方块占用的宽度是4  所以 3+4+3=10 所以+3 方块开始的时候，就刚好在中间位置
+        for (i = 0; i < 4; i++)
+            previewBar.children[PY[i]].children[PX[i] - 3].className = "MB";
+
+    }
+
+    // 游戏区
+    function gameBarSet() {
+        // 证明游戏区有方块
+        if (BX[0] || BX[1] || BX[2] || BX[3]) {
+            return;
+        }
+
+        // 判断是否有足够的位置放下新的方块
+        // 方块开始出来的区域，如果不是白色的话，说明已经被其他方块占用了，则游戏结束
+        for (i = 0; i < 4; i++) {
+            if (getClass(PX[i], PY[i]) != "BK") {
+                gameOver();
+                return;
+            }
+        }
+
+        // 从预览区复制一个方块
+        for (i = 0; i < 4; i++) {
+            BX[i] = PX[i];
+            BY[i] = PY[i];
+        }
+
+        // 设置方块的颜色
+        for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "MB");
+
+        PX = new Array(4)
+        PY = new Array(4)
+        // 应该在预览区再创建一个
+        previewBarSet();
+    }
+
+
+    // 方块定时移动
+    function moveBar() {
+        // 如果游戏不是开始状态，直接结束
+        if (USER_GAME_STATUS != 1) return;
+        syncGame();
+
+        // 判断预览区是否有方块，如果没有就要创建一个
+        previewBarSet();
+
+        // 判断是否有方块正在下降，如果没有，就从预览区复制一个过来
+        gameBarSet();
+
+        // 在这里可能游戏已经结束
+        if (USER_GAME_STATUS != 1) return;
+
+        // 是否可以继续下降
+        dropLine = true;
+        // 如果已经到了最底下就不能再下降了
+        for (i = 0; i < 4; i++)
+            if (BY[i] == 15)
+                dropLine = false;
+
+
+        if (dropLine)
+            // 如果下一个位置有方块的颜色了，也不能下降了
+            for (i = 0; i < 4; i++)
+                if (getClass(BX[i], BY[i] + 1) == "SB")
+                    dropLine = false;
+
+        // 如果不能下降了
+        if (!dropLine) {
+            // 停止计时器
+            // window.clearInterval(mTimer);
+
+            delLine();
+            return;
+        }
+        // 下降一个位置 MB是红色，在下降的时候，还是红色的
+        for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "BK");
+        for (i = 0; i < 4; i++) BY[i] = BY[i] + 1;
+        for (i = 0; i < 4; i++) setClass(BX[i], BY[i], "MB");
+    }
+
+
+    function fMnu() {
+        return false;
+    }
+
+    document.oncontextmenu = fMnu;
+
+
     // 游戏结束
     function gameOver() {
-        alert("Game Over!");
         window.clearInterval(mTimer);
-        // 游戏结束
-        gameState = 2;
+        window.clearInterval(sTimer);
+
+        USER_GAME_STATUS = 2;
         syncGame();
+
+        console.log("Game Over!");
     }
-
-
-    // 用于保存用户的token
-    var token, ROOM_ID;
-
-
-    function unSel() {
-        document.execCommand("Unselect");
-        window.setTimeout("unSel()", 100);
-    }
-
-    unSel();
-
-
 </script>

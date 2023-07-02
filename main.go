@@ -356,6 +356,9 @@ func syncGame(c *gin.Context) {
 	// index
 	index := int(requestBody["index"].(float64))
 
+	// game_status
+	gameStatus := int(requestBody["game_status"].(float64))
+
 	// 获取用户的token
 	User := getUser(c)
 	if User == nil {
@@ -367,6 +370,8 @@ func syncGame(c *gin.Context) {
 	// Board
 	User.Board = board
 	User.Index = index
+
+	User.GameStatus = gameStatus
 
 	c.JSON(200, gin.H{
 		"code": 1,

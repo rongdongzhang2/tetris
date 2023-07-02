@@ -15,6 +15,7 @@ type User struct {
 	Score      int             `json:"score"`
 	Board      []interface{}   `json:"board"`
 	Index      int             `json:"index"`
+	GameStatus int             `json:"game_status"` // 0-未开始,1-进行中,2-结束
 }
 
 // List  用户列表
@@ -91,5 +92,7 @@ func (u *User) ToJson() map[string]interface{} {
 		"last_active": u.lastActive,
 		"index":       u.Index,
 		"score":       u.Score,
+		"board":       u.Board,
+		"game_status": u.GameStatus,
 	}
 }
